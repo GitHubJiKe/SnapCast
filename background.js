@@ -128,12 +128,15 @@ chrome.runtime.onInstalled.addListener(() => {
 // 注意：SW 被快捷键唤醒时内存变量可能已被清空，必须从 storage 异步读取 targetTabId
 chrome.commands.onCommand.addListener(async (command) => {
   const tabId = await getTargetTabId();
-  if (!tabId) return; // 没有正在录制的 tab，忽略
+  if (!tabId) {
+    console.warn("SnapCast: 快捷键触发但无可用录制标签页");
+    return;
+  }
 
   if (command === "toggle-pause") {
-    sendToContent(tabId, { type: "SC_PAUSE" }).catch(() => {});
+    sendToContent(tabId, { type: "SC_PAUSE" }).catch((e) => console.warn("SnapCast: 快捷键暂停失败", e));
   } else if (command === "stop-recording") {
-    sendToContent(tabId, { type: "SC_STOP" }).catch(() => {});
+    sendToContent(tabId, { type: "SC_STOP" }).catch((e) => console.warn("SnapCast: 快捷键停止失败", e));
   }
 });
 

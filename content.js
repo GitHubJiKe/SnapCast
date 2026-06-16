@@ -43,7 +43,7 @@ function initSnapCast() {
   let pausedAt = null;
   let pausedDuration = 0;
   let timerId = null;
-  let drawReq = null;
+  let savingOrCleaning = false; // 防止 saveRecording/cleanup 并发执行
 
   // 录制配置（由 popup 通过消息传入）
   let recConfig = {
@@ -245,15 +245,6 @@ function initSnapCast() {
     stopTracks(mixedStream);
     screenStream = cameraStream = micStream = mixedStream = null;
     if (audioCtx && audioCtx.state !== "closed") audioCtx.close().catch(() => {});
-    audioCtx = audioDestNode = null;
-    camVideo.srcObject = null;
-    camBubble.classList.remove("visible");
-  }
-
-  function stopDrawLoop() {
-    if (!drawReq) return;
-    cancelAnimationFrame(drawReq);
-    drawReq = null;
   }
 
   function stopTimerLoop() {
@@ -314,56 +305,9 @@ function initSnapCast() {
 
     const mixedAudioTrack = audioDestNode.stream.getAudioTracks()[0];
 
-    // ── canvas 混合屏幕 + 摄像头 ──────────────────────────────────────────
-    const offscreen = document.createElement("canvas");
-    const screenVid = document.createElement("video");
-    screenVid.srcObject = screenStream;
-    screenVid.autoplay = true;
-    screenVid.muted = true;
-    await screenVid.play();
-
-    // 等待视频尺寸就绪
-    await new Promise((res) => {
-      if (screenVid.videoWidth) { res(); return; }
-      screenVid.onloadedmetadata = res;
-    });
-
-    offscreen.width  = screenVid.videoWidth  || 1280;
-    offscreen.height = screenVid.videoHeight || 720;
-    const octx = offscreen.getContext("2d", { alpha: false });
-
-    // 摄像头帧尺寸（右下角圆形，实际录制为方形 PiP）
-    const PIP_SIZE = Math.floor(offscreen.width * 0.22);
-
-    function drawMix() {
-      octx.fillStyle = "#000";
-      octx.fillRect(0, 0, offscreen.width, offscreen.height);
-      if (screenVid.readyState >= 2) {
-        octx.drawImage(screenVid, 0, 0, offscreen.width, offscreen.height);
-      }
-      if (cameraStream && camVideo.readyState >= 2) {
-        const cx = offscreen.width  - PIP_SIZE - 16;
-        const cy = offscreen.height - PIP_SIZE - 16;
-        // 圆形裁剪
-        octx.save();
-        octx.beginPath();
-        octx.arc(cx + PIP_SIZE / 2, cy + PIP_SIZE / 2, PIP_SIZE / 2, 0, Math.PI * 2);
-        octx.clip();
-        octx.drawImage(camVideo, cx, cy, PIP_SIZE, PIP_SIZE);
-        octx.restore();
-        // 白色描边
-        octx.strokeStyle = "rgba(255,255,255,0.8)";
-        octx.lineWidth = 2;
-        octx.beginPath();
-        octx.arc(cx + PIP_SIZE / 2, cy + PIP_SIZE / 2, PIP_SIZE / 2, 0, Math.PI * 2);
-        octx.stroke();
-      }
-      drawReq = requestAnimationFrame(drawMix);
-    }
-    drawMix();
-
-    const videoTrack = offscreen.captureStream(30).getVideoTracks()[0];
-    const tracks = [videoTrack];
+    // 直接使用屏幕流的视频轨道，摄像头 DOM 泡泡自然出现在画面中（无需 Canvas 合成）
+    const screenVideoTrack = screenStream.getVideoTracks()[0];
+    const tracks = [screenVideoTrack];
     if (mixedAudioTrack) tracks.push(mixedAudioTrack);
     mixedStream = new MediaStream(tracks);
   }
@@ -449,7 +393,6 @@ function initSnapCast() {
 
     } catch (error) {
       releaseMedia();
-      stopDrawLoop();
       setStatus("idle");
       // 用户取消选择，静默处理
       const isCancelled = !error ||
@@ -476,6 +419,7 @@ function initSnapCast() {
   }
 
   function stopRecording() {
+    if (savingOrCleaning) return; // saveRecording 正在异步执行，直接忽略
     if (!recorder) {
       cleanup();
       destroyToolbar();
@@ -485,14 +429,13 @@ function initSnapCast() {
       pausedDuration += Date.now() - pausedAt;
       pausedAt = null;
     }
-    stopDrawLoop();
     stopTimerLoop();
     status = "idle"; // 直接更新状态，不经过 setStatus（避免 destroyToolbar 提前删除 DOM）
     chrome.runtime.sendMessage({ type: "STATE_UPDATE", state: { status: "idle", startedAt: null } }).catch(() => {});
     clearTimeout(autoHideTimer);
 
     if (recorder.state !== "inactive") {
-      recorder.stop(); // onstop → saveRecording → cleanup → destroyToolbar
+      recorder.stop(); // onstop → saveRecording
     } else {
       releaseMedia();
       destroyToolbar();
@@ -500,25 +443,56 @@ function initSnapCast() {
   }
 
   // ── 保存 / 下载 ───────────────────────────────────────────────────────────
+  // 使用 Blob URL + 隐藏 a 标签触发下载，避免 readAsDataURL 的内存/消息限制
   async function saveRecording() {
-    if (!chunks.length) { cleanup(); return; }
+    if (savingOrCleaning) return; // 防止并发
+    savingOrCleaning = true;
+
+    if (!chunks.length) { cleanup(); destroyToolbar(); savingOrCleaning = false; return; }
+
     const webmBlob = new Blob(chunks, { type: "video/webm" });
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    const filename = `snapcast-${ts}.webm`;
 
-    // 通知 background 下载（content script 无法直接用 chrome.downloads）
-    const reader = new FileReader();
-    reader.onload = () => {
-      chrome.runtime.sendMessage({
+    // 方式 1：通过 background 下载（兼容 chrome.downloads API，支持自定义路径）
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error("文件读取失败，请重试"));
+        reader.readAsDataURL(webmBlob);
+      });
+
+      await chrome.runtime.sendMessage({
         type: "DOWNLOAD_RECORDING",
-        dataUrl: reader.result,
-        filename: `snapcast-${ts}.webm`,
+        dataUrl,
+        filename,
         format: recConfig.format
-      }).catch(() => {});
-    };
-    reader.readAsDataURL(webmBlob);
+      });
+    } catch (_err) {
+      // 方式 2（兜底）：直接在页面内创建 <a> 标签触发下载
+      // 绕过消息大小限制，适合大文件场景
+      try {
+        const url = URL.createObjectURL(webmBlob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.style.display = "none";
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 100);
+      } catch (fallbackErr) {
+        console.error("SnapCast: 下载完全失败", fallbackErr);
+      }
+    }
+
     releaseMedia();
     cleanup();
     destroyToolbar();
+    savingOrCleaning = false;
   }
 
   // 彻底销毁工具栏和摄像头泡泡 DOM，并重置注入标记
@@ -532,7 +506,6 @@ function initSnapCast() {
 
   function cleanup() {
     releaseMedia();
-    stopDrawLoop();
     stopTimerLoop();
     startedAt = null;
     pausedDuration = 0;
