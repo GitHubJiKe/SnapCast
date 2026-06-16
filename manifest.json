@@ -2,14 +2,19 @@
   "manifest_version": 3,
   "name": "SnapCast Recorder",
   "description": "Record screen with optional camera picture-in-picture and save locally.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "permissions": [
     "storage",
     "downloads",
     "background",
     "offscreen",
     "tabs",
-    "windows"
+    "windows",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"
@@ -18,12 +23,35 @@
     "default_title": "SnapCast",
     "default_popup": "popup.html"
   },
+  "commands": {
+    "toggle-pause": {
+      "suggested_key": {
+        "default": "Shift+Alt+P",
+        "mac": "Shift+Command+P"
+      },
+      "description": "暂停 / 继续录制"
+    },
+    "stop-recording": {
+      "suggested_key": {
+        "default": "Shift+Alt+S",
+        "mac": "Shift+Command+S"
+      },
+      "description": "停止录制并下载"
+    }
+  },
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
   },
   "web_accessible_resources": [
     {
-      "resources": ["recorder.html", "recorder.css", "recorder.js", "vendor/*"],
+      "resources": [
+        "recorder.html",
+        "recorder.css",
+        "recorder.js",
+        "content.css",
+        "video-camera.png",
+        "vendor/*"
+      ],
       "matches": ["<all_urls>"]
     }
   ]

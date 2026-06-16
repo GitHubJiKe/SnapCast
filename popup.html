@@ -9,10 +9,16 @@
   <body>
     <main class="app">
       <header class="header">
-        <h1>SnapCast</h1>
-        <p>本地录屏 + 摄像头画中画</p>
+        <div class="header-icon-wrap">
+          <img src="video-camera.png" alt="SnapCast" class="header-icon" />
+        </div>
+        <div class="header-text">
+          <h1>SnapCast</h1>
+          <p>本地录屏 + 摄像头画中画</p>
+        </div>
       </header>
 
+      <!-- 状态面板 -->
       <section class="panel">
         <div class="row">
           <span class="label">状态</span>
@@ -22,13 +28,56 @@
           <span class="label">时长</span>
           <span id="elapsed">00:00</span>
         </div>
-        <p id="hint" class="hint">点击开始录制后会打开独立录制窗口。</p>
+        <p id="hint" class="hint">配置好选项后，点击开始录制。</p>
       </section>
 
+      <!-- 录制配置（仅空闲时显示） -->
+      <section id="configSection" class="config-section">
+        <!-- 麦克风 Toggle -->
+        <div class="field">
+          <label class="toggle-row" for="micToggle">
+            <span class="toggle-label-text">🎙 启用麦克风</span>
+            <input id="micToggle" class="toggle-input" type="checkbox" checked />
+            <span class="toggle-switch"></span>
+          </label>
+        </div>
+
+        <!-- 摄像头 Toggle -->
+        <div class="field">
+          <label class="toggle-row" for="cameraToggle">
+            <span class="toggle-label-text">📷 摄像头画中画</span>
+            <input id="cameraToggle" class="toggle-input" type="checkbox" checked />
+            <span class="toggle-switch"></span>
+          </label>
+        </div>
+
+        <!-- 输出格式 -->
+        <div class="field format-field">
+          <p class="field-label">输出格式</p>
+          <div class="format-options">
+            <label class="format-option">
+              <input type="radio" name="outputFormat" value="webm" checked />
+              <span class="format-option-dot"></span>
+              <span class="format-tag">WebM</span>
+              <span class="format-desc">立即下载，体积小</span>
+            </label>
+            <label class="format-option">
+              <input type="radio" name="outputFormat" value="mp4" />
+              <span class="format-option-dot"></span>
+              <span class="format-tag mp4">MP4</span>
+              <span class="format-desc">兼容性更好</span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <!-- 操作按钮 -->
       <section class="actions">
         <button id="startBtn" class="btn primary">开始录制</button>
-        <button id="pauseBtn" class="btn">暂停</button>
-        <button id="stopBtn" class="btn danger">停止录制</button>
+        <div class="actions-secondary">
+          <button id="pauseBtn" class="btn">暂停</button>
+          <button id="stopBtn" class="btn danger">停止录制</button>
+        </div>
       </section>
     </main>
 

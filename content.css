@@ -1,0 +1,255 @@
+/* SnapCast 悬浮工具栏 — 注入到目标页面的样式
+   所有选择器加 #snapcast- 前缀，避免污染宿主页面 */
+
+#snapcast-toolbar {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483647; /* 最大 z-index，始终置顶 */
+
+  display: flex;
+  align-items: center;
+  gap: 4px;
+
+  background: rgba(18, 22, 34, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 7px 12px;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.45),
+    0 1px 4px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  color: #f0f4ff;
+  user-select: none;
+  cursor: default;
+
+  /* 入场动画 */
+  animation: sc-slide-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 录制中隐藏：用 visibility 确保彻底不可见，同时关掉入场动画防止被覆盖 */
+#snapcast-toolbar.sc-hidden {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  transform: translateX(-50%) translateY(-110%) !important;
+  pointer-events: none !important;
+  animation: none !important;
+}
+
+/* 快捷键/鼠标触发后短暂显示 */
+#snapcast-toolbar.sc-peek {
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: translateX(-50%) translateY(0) !important;
+  pointer-events: auto !important;
+  animation: none !important;
+}
+
+/* ── 全屏倒计时蒙层 ──────────────────────────────────── */
+#snapcast-countdown {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+#snapcast-countdown .sc-count-ring {
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: rgba(10, 14, 24, 0.75);
+  border: 3px solid rgba(255, 77, 109, 0.7);
+  box-shadow:
+    0 0 0 8px rgba(255, 77, 109, 0.12),
+    0 8px 40px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  animation: sc-count-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes sc-count-in {
+  from { opacity: 0; transform: scale(0.6); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+#snapcast-countdown .sc-count-num {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 72px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  animation: sc-count-tick 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes sc-count-tick {
+  0%   { opacity: 0; transform: scale(1.6); }
+  20%  { opacity: 1; transform: scale(1.0); }
+  80%  { opacity: 1; transform: scale(1.0); }
+  100% { opacity: 0; transform: scale(0.7); }
+}
+
+@keyframes sc-slide-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-12px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* 拖动手柄 */
+#snapcast-toolbar .sc-drag-handle {
+  display: flex;
+  align-items: center;
+  padding: 0 4px 0 0;
+  cursor: grab;
+  opacity: 0.4;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+#snapcast-toolbar .sc-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* 录制状态指示点 */
+#snapcast-toolbar .sc-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6b7280;
+  margin-right: 2px;
+  flex-shrink: 0;
+}
+
+#snapcast-toolbar .sc-dot.recording {
+  background: #ff4d6d;
+  box-shadow: 0 0 0 0 rgba(255, 77, 109, 0.7);
+  animation: sc-pulse 1.4s ease-in-out infinite;
+}
+
+#snapcast-toolbar .sc-dot.paused {
+  background: #ffd166;
+}
+
+@keyframes sc-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(255, 77, 109, 0.7); }
+  70%  { box-shadow: 0 0 0 6px rgba(255, 77, 109, 0); }
+  100% { box-shadow: 0 0 0 0   rgba(255, 77, 109, 0); }
+}
+
+/* 计时器 */
+#snapcast-toolbar .sc-timer {
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: #f0f4ff;
+  min-width: 42px;
+  text-align: center;
+  margin: 0 4px;
+}
+
+/* 分隔线 */
+#snapcast-toolbar .sc-sep {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.15);
+  margin: 0 4px;
+}
+
+/* 工具栏按钮 */
+#snapcast-toolbar .sc-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: rgba(240, 244, 255, 0.75);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+  outline: none;
+  flex-shrink: 0;
+}
+
+#snapcast-toolbar .sc-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+#snapcast-toolbar .sc-btn:active {
+  transform: scale(0.9);
+}
+
+/* 停止按钮特殊颜色 */
+#snapcast-toolbar .sc-btn.sc-stop:hover {
+  background: rgba(217, 71, 87, 0.25);
+  color: #ff8fab;
+}
+
+/* 快捷键提示文字 */
+#snapcast-toolbar .sc-shortcut-hint {
+  font-size: 11px;
+  color: rgba(240, 244, 255, 0.45);
+  letter-spacing: 0.02em;
+  margin-left: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* 摄像头泡泡（右下角圆形） */
+#snapcast-cam-bubble {
+  position: fixed;
+  z-index: 2147483646;
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.5),
+    0 0 0 2px rgba(255, 255, 255, 0.25);
+  cursor: grab;
+  /* 默认右下角 */
+  bottom: 24px;
+  right: 24px;
+  width: 120px;
+  height: 120px;
+  background: #0a0e15;
+  display: none; /* 未开启摄像头时隐藏 */
+  animation: sc-bubble-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+#snapcast-cam-bubble.visible {
+  display: block;
+}
+
+#snapcast-cam-bubble:active {
+  cursor: grabbing;
+}
+
+@keyframes sc-bubble-in {
+  from { opacity: 0; transform: scale(0.6); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+#snapcast-cam-bubble video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scaleX(-1); /* 镜像，更自然 */
+}

@@ -1,266 +1,190 @@
-const RECORDER_URL = chrome.runtime.getURL("recorder.html");
+/**
+ * SnapCast — Background Service Worker (v2)
+ *
+ * 新架构（Screenity 风格）：
+ *  - 不再创建独立 recorder 窗口
+ *  - popup 点击「开始录制」→ background 向当前 tab 注入 content.js
+ *  - content.js 在目标页面内调用 getDisplayMedia + 渲染悬浮工具栏
+ *  - background 负责：状态管理、消息路由、文件下载
+ */
 
+// ── 状态 ──────────────────────────────────────────────────────────────────────
 const DEFAULT_STATE = {
   status: "idle",
   startedAt: null,
   error: null,
-  hasRecorder: false,
+  targetTabId: null,
   lastUpdated: Date.now()
 };
 
 let runtimeState = { ...DEFAULT_STATE };
-let recorderTabId = null;
-let recorderWindowId = null;
-let recorderReady = false;
-let pendingStart = false;
+let targetTabId  = null; // 正在录制的 tab（同时持久化到 storage，防止 SW 休眠后丢失）
 
-// ── o4: Service Worker 生命周期修复 ─────────────────────────────────────────
-// SW 可能被 Chrome 随时挂起（idle ~30s 后），挂起后内存变量全部丢失。
-// 每次消息到来时先从 storage 重新同步 runtimeState，
-// 同时通过 queryRecorderTab 检查 recorder 窗口是否仍然存在，恢复 recorderTabId。
-let stateRestored = false;
-
-async function ensureStateRestored() {
-  if (stateRestored) {
-    return;
-  }
-  stateRestored = true;
-
-  await new Promise((resolve) => {
-    chrome.storage.local.get(["snapCastState"], (result) => {
-      if (result.snapCastState && typeof result.snapCastState === "object") {
-        runtimeState = {
-          ...DEFAULT_STATE,
-          ...result.snapCastState,
-          // 无法恢复实时流对象，将 hasRecorder 置为 false 再重新探测
-          hasRecorder: false,
-          lastUpdated: Date.now()
-        };
-      }
-      resolve();
-    });
-  });
-
-  // 重新探测 recorder 窗口是否还活着
-  const existingTab = await queryRecorderTab();
-  if (existingTab && typeof existingTab.id === "number") {
-    recorderTabId = existingTab.id;
-    recorderWindowId = existingTab.windowId;
-    recorderReady = true;
-    mergeState({ hasRecorder: true });
-  } else {
-    recorderTabId = null;
-    recorderWindowId = null;
-    recorderReady = false;
-    // 若 storage 中记录了录制中状态但窗口已丢失，重置为 idle
-    if (runtimeState.status !== "idle") {
-      mergeState({ status: "idle", startedAt: null, hasRecorder: false, error: "录制窗口在后台已关闭" });
-    }
-  }
+// ── 持久化 ────────────────────────────────────────────────────────────────────
+function mergeState(patch) {
+  runtimeState = { ...runtimeState, ...patch, lastUpdated: Date.now() };
+  chrome.storage.local.set({ snapCastState: runtimeState });
+  // 广播给 popup
+  chrome.runtime.sendMessage({ type: "STATE_CHANGED", state: runtimeState }).catch(() => {});
 }
 
-function mergeState(patch) {
-  runtimeState = {
-    ...runtimeState,
-    ...patch,
-    lastUpdated: Date.now()
-  };
+// targetTabId 持久化：Service Worker 随时可能休眠，内存变量会丢失
+// 快捷键触发时 SW 刚被唤醒，必须从 storage 恢复 targetTabId
+function saveTargetTabId(tabId) {
+  targetTabId = tabId;
+  chrome.storage.local.set({ snapCastTargetTabId: tabId });
+}
 
-  chrome.storage.local.set({ snapCastState: runtimeState });
-  chrome.runtime.sendMessage({ type: "STATE_CHANGED", state: runtimeState }, () => {
-    void chrome.runtime.lastError;
-  });
+async function getTargetTabId() {
+  if (targetTabId !== null) return targetTabId;
+  // 内存里没有，从 storage 恢复
+  const result = await chrome.storage.local.get(["snapCastTargetTabId"]);
+  targetTabId = result.snapCastTargetTabId ?? null;
+  return targetTabId;
 }
 
 function loadStateFromStorage() {
-  chrome.storage.local.get(["snapCastState"], (result) => {
+  chrome.storage.local.get(["snapCastState", "snapCastTargetTabId"], (result) => {
     const stored = result.snapCastState;
     if (stored && typeof stored === "object") {
-      runtimeState = {
-        ...DEFAULT_STATE,
-        ...stored,
-        hasRecorder: false,
-        status: "idle",
-        error: null,
-        lastUpdated: Date.now()
-      };
+      runtimeState = { ...DEFAULT_STATE, ...stored, status: "idle", error: null };
+    }
+    // 恢复 targetTabId（录制中途 SW 重启时保持快捷键可用）
+    if (result.snapCastTargetTabId) {
+      targetTabId = result.snapCastTargetTabId;
     }
     chrome.storage.local.set({ snapCastState: runtimeState });
   });
 }
 
-function queryRecorderTab() {
-  return new Promise((resolve) => {
-    chrome.tabs.query({ url: RECORDER_URL }, (tabs) => {
+// ── Tab 监听：录制 tab 关闭时重置状态 ────────────────────────────────────────
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabId !== targetTabId) return;
+  saveTargetTabId(null);
+  chrome.storage.local.remove("snapCastTargetTabId");
+  mergeState({ ...DEFAULT_STATE });
+});
+
+// ── 工具：向 content script 发送消息 ─────────────────────────────────────────
+function sendToContent(tabId, message) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, message, (resp) => {
       const err = chrome.runtime.lastError;
-      if (err || !Array.isArray(tabs) || tabs.length === 0) {
-        resolve(null);
-        return;
-      }
-      resolve(tabs[0]);
+      if (err) { reject(new Error(err.message)); return; }
+      resolve(resp);
     });
   });
 }
 
-function focusRecorderWindow() {
-  if (!recorderWindowId) {
-    return;
-  }
-  chrome.windows.update(recorderWindowId, { focused: true }, () => {
-    void chrome.runtime.lastError;
-  });
-}
+// ── 工具：注入 content script（如果尚未注入） ─────────────────────────────────
+async function ensureContentInjected(tabId) {
+  // 先探测是否已注入（发消息，有响应说明已注入）
+  try {
+    const resp = await sendToContent(tabId, { type: "SC_GET_STATUS" });
+    if (resp && resp.ok) return; // 已注入，直接返回
+  } catch (_) {}
 
-function createRecorderWindow() {
-  return new Promise((resolve, reject) => {
-    chrome.windows.create(
-      {
-        url: RECORDER_URL,
-        type: "popup",
-        width: 520,
-        height: 760,
-        focused: true
-      },
-      (createdWindow) => {
-        const err = chrome.runtime.lastError;
-        if (err || !createdWindow) {
-          reject(new Error(err ? err.message : "无法创建录制窗口"));
-          return;
-        }
-        resolve(createdWindow);
+  // 尚未注入：先注册 CONTENT_READY 监听器，再注入脚本
+  // 顺序必须是：先监听 → 再注入，否则 content.js 发出信号时监听器还未就绪
+  const readyPromise = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      chrome.runtime.onMessage.removeListener(onReady);
+      // 超时兜底：再尝试一次轮询，避免因消息时序问题误报超时
+      sendToContent(tabId, { type: "SC_GET_STATUS" })
+        .then(resp => {
+          if (resp && resp.ok) resolve();
+          else reject(new Error("content.js 注入后无响应，请刷新页面重试"));
+        })
+        .catch(() => reject(new Error("content.js 注入后无响应，请刷新页面重试")));
+    }, 4000);
+
+    function onReady(msg, sender) {
+      // 必须验证是来自目标 tab 的消息
+      if (msg && msg.type === "CONTENT_READY" && sender.tab && sender.tab.id === tabId) {
+        clearTimeout(timer);
+        chrome.runtime.onMessage.removeListener(onReady);
+        resolve();
       }
-    );
+    }
+    chrome.runtime.onMessage.addListener(onReady);
   });
-}
 
-async function ensureRecorderWindow() {
-  const existingTab = await queryRecorderTab();
-  if (existingTab && typeof existingTab.id === "number") {
-    recorderTabId = existingTab.id;
-    recorderWindowId = existingTab.windowId;
-    mergeState({ hasRecorder: true });
-    focusRecorderWindow();
-    return;
-  }
-
-  const createdWindow = await createRecorderWindow();
-  recorderWindowId = createdWindow.id;
-  recorderReady = false;
-
-  const createdTab = Array.isArray(createdWindow.tabs) ? createdWindow.tabs[0] : null;
-  if (createdTab && typeof createdTab.id === "number") {
-    recorderTabId = createdTab.id;
-  } else {
-    const fallbackTab = await queryRecorderTab();
-    recorderTabId = fallbackTab && typeof fallbackTab.id === "number" ? fallbackTab.id : null;
-  }
-
-  mergeState({ hasRecorder: true });
-}
-
-function sendCommandToRecorder(command) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(
-      {
-        type: "RECORDER_CONTROL",
-        target: "recorder",
-        command
-      },
-      (response) => {
-        const err = chrome.runtime.lastError;
-        if (err) {
-          reject(new Error(err.message));
-          return;
-        }
-        if (!response || response.ok !== true) {
-          reject(new Error(response && response.error ? response.error : "录制窗口无响应"));
-          return;
-        }
-        resolve(response);
-      }
-    );
+  // 注入脚本（监听器已就绪，不会错过 CONTENT_READY）
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["content.js"]
   });
+
+  // 等待 CONTENT_READY 或超时兜底
+  await readyPromise;
 }
 
-function clearRecorderHandles() {
-  recorderTabId = null;
-  recorderWindowId = null;
-  recorderReady = false;
-  pendingStart = false;
-}
-
+// ── 安装初始化 ────────────────────────────────────────────────────────────────
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.set({ snapCastState: { ...DEFAULT_STATE } });
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => {
-  if (tabId !== recorderTabId) {
-    return;
-  }
+// ── 全局快捷键处理 ────────────────────────────────────────────────────────────
+// 注意：SW 被快捷键唤醒时内存变量可能已被清空，必须从 storage 异步读取 targetTabId
+chrome.commands.onCommand.addListener(async (command) => {
+  const tabId = await getTargetTabId();
+  if (!tabId) return; // 没有正在录制的 tab，忽略
 
-  clearRecorderHandles();
-  mergeState({
-    status: "idle",
-    startedAt: null,
-    hasRecorder: false,
-    error: "录制窗口已关闭"
-  });
+  if (command === "toggle-pause") {
+    sendToContent(tabId, { type: "SC_PAUSE" }).catch(() => {});
+  } else if (command === "stop-recording") {
+    sendToContent(tabId, { type: "SC_STOP" }).catch(() => {});
+  }
 });
 
-chrome.windows.onRemoved.addListener((windowId) => {
-  if (windowId !== recorderWindowId) {
-    return;
-  }
-
-  clearRecorderHandles();
-  mergeState({
-    status: "idle",
-    startedAt: null,
-    hasRecorder: false,
-    error: "录制窗口已关闭"
-  });
-});
-
-// ── o4: SW 每次重新被激活（执行首行代码）时，stateRestored 就是 false，
-//        因为 SW 重启后所有模块级变量都重置了，不需要额外重置。
-//        只需在每个异步 handler 入口调用 ensureStateRestored() 即可。
-
+// ── 消息路由 ─────────────────────────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message || typeof message.type !== "string") {
-    return;
-  }
+  if (!message || typeof message.type !== "string") return;
 
+  // ── popup → 开始录制 ───────────────────────────────────────────────────
   if (message.type === "OPEN_RECORDER") {
-    pendingStart = Boolean(message.autoStart);
+    const config  = message.config  || {};
+    const tabId   = message.tabId;
+    const tabUrl  = message.tabUrl  || "";
 
-    ensureStateRestored()
-      .then(() => ensureRecorderWindow())
-      .then(async () => {
-        if (pendingStart && recorderReady) {
-          await sendCommandToRecorder("start");
-          pendingStart = false;
-        }
-        sendResponse({ ok: true, state: runtimeState });
-      })
-      .catch((error) => {
-        mergeState({ status: "error", error: error.message });
-        sendResponse({ ok: false, error: error.message });
-      });
+    // popup 已在发送前查好 tabId，这里直接使用
+    if (!tabId) {
+      mergeState({ status: "error", error: "未收到目标标签页 ID" });
+      sendResponse({ ok: false, error: "未收到目标标签页 ID", state: runtimeState });
+      return;
+    }
 
-    return true;
-  }
+    // 不允许在扩展页面、chrome:// 页面注入
+    if (tabUrl.startsWith("chrome://") || tabUrl.startsWith("chrome-extension://")) {
+      mergeState({ status: "error", error: "无法在此页面录制，请切换到普通网页" });
+      sendResponse({ ok: false, error: "无法在此页面录制", state: runtimeState });
+      return;
+    }
 
-  if (message.type === "REQUEST_STATE") {
-    ensureStateRestored()
+    saveTargetTabId(tabId);
+    mergeState({ status: "preparing", targetTabId: tabId });
+
+    // 异步注入并启动（不阻塞 sendResponse）
+    ensureContentInjected(tabId)
+      .then(() => sendToContent(tabId, { type: "SC_START", config }))
       .then(() => {
         sendResponse({ ok: true, state: runtimeState });
       })
-      .catch(() => {
-        sendResponse({ ok: true, state: runtimeState });
+      .catch((err) => {
+        mergeState({ status: "error", error: err.message });
+        sendResponse({ ok: false, error: err.message, state: runtimeState });
       });
-    return true;
+
+    return true; // 异步响应
   }
 
+  // ── popup → 查询状态 ───────────────────────────────────────────────────
+  if (message.type === "REQUEST_STATE") {
+    sendResponse({ ok: true, state: runtimeState });
+    return;
+  }
+
+  // ── content → 上报状态变化 ────────────────────────────────────────────
   if (message.type === "STATE_UPDATE") {
     if (message.state && typeof message.state === "object") {
       mergeState(message.state);
@@ -269,47 +193,56 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
-  if (message.type === "RECORDER_READY") {
-    recorderReady = true;
-    stateRestored = true; // recorder 窗口刚启动，视为状态已恢复
-
-    if (sender.tab && typeof sender.tab.id === "number") {
-      recorderTabId = sender.tab.id;
-      recorderWindowId = sender.tab.windowId;
-    }
-
-    mergeState({ hasRecorder: true });
-
-    if (pendingStart) {
-      sendCommandToRecorder("start")
-        .then(() => {
-          pendingStart = false;
-          sendResponse({ ok: true, state: runtimeState });
-        })
-        .catch((error) => {
-          pendingStart = false;
-          mergeState({ status: "error", error: error.message });
-          sendResponse({ ok: false, error: error.message });
-        });
-      return true;
-    }
-
-    sendResponse({ ok: true, state: runtimeState });
-    return;
-  }
-
+  // ── popup → 暂停/继续/停止 ────────────────────────────────────────────
   if (message.type === "CONTROL_RECORDING") {
-    ensureStateRestored()
-      .then(() => sendCommandToRecorder(message.command))
-      .then((response) => {
-        sendResponse({ ok: true, state: runtimeState, response });
-      })
-      .catch((error) => {
-        sendResponse({ ok: false, error: error.message });
-      });
+    if (!targetTabId) {
+      sendResponse({ ok: false, error: "没有正在录制的标签页" });
+      return;
+    }
+
+    const cmd = message.command;
+    const msgType = cmd === "pause"  ? "SC_PAUSE"
+                  : cmd === "resume" ? "SC_PAUSE"  // content 内部自动切换
+                  : cmd === "stop"   ? "SC_STOP"
+                  : null;
+
+    if (!msgType) { sendResponse({ ok: false, error: "未知命令" }); return; }
+
+    sendToContent(targetTabId, { type: msgType })
+      .then(() => sendResponse({ ok: true, state: runtimeState }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
 
     return true;
   }
+
+  // ── content → 下载录制文件 ────────────────────────────────────────────
+  // content script 无法直接调用 chrome.downloads，委托给 background
+  if (message.type === "DOWNLOAD_RECORDING") {
+    const { dataUrl, filename } = message;
+    if (!dataUrl || !filename) { sendResponse({ ok: false }); return; }
+
+    chrome.downloads.download({ url: dataUrl, filename, saveAs: true }, (downloadId) => {
+      const err = chrome.runtime.lastError;
+      if (err) {
+        sendResponse({ ok: false, error: err.message });
+      } else {
+        sendResponse({ ok: true, downloadId });
+        // 下载触发后重置状态
+        mergeState({ ...DEFAULT_STATE });
+        saveTargetTabId(null);
+        chrome.storage.local.remove("snapCastTargetTabId");
+      }
+    });
+
+    return true;
+  }
+
+  // ── content → 注入完成信号（在 ensureContentInjected 内处理，这里兜底） ─
+  if (message.type === "CONTENT_READY") {
+    sendResponse({ ok: true });
+    return;
+  }
 });
 
+// ── 初始化 ────────────────────────────────────────────────────────────────────
 loadStateFromStorage();

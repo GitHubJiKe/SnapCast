@@ -3,6 +3,7 @@ const ctx = mixCanvas.getContext("2d", { alpha: false });
 const screenVideo = document.getElementById("screenPreview");
 const cameraVideo = document.getElementById("cameraPreview");
 const pipOverlay = document.getElementById("pipDragOverlay");
+const canvasPlaceholder = document.getElementById("canvasPlaceholder");
 
 const message = document.getElementById("message");
 const statusDot = document.getElementById("statusDot");
@@ -33,12 +34,20 @@ let ffmpegLoading = false;     // 防止并发重复加载
 
 function setFfmpegProgress(percent, label) {
   ffmpegStatus.classList.remove("hidden");
-  ffmpegBar.style.width = `${Math.min(100, Math.max(0, percent))}%`;
+  // 0% 时用 indeterminate 扫光动画，>0 时用真实进度
+  if (percent <= 0) {
+    ffmpegBar.classList.add("indeterminate");
+    ffmpegBar.style.width = "";
+  } else {
+    ffmpegBar.classList.remove("indeterminate");
+    ffmpegBar.style.width = `${Math.min(100, percent)}%`;
+  }
   ffmpegLabel.textContent = label;
 }
 
 function hideFfmpegStatus() {
   ffmpegStatus.classList.add("hidden");
+  ffmpegBar.classList.remove("indeterminate");
   ffmpegBar.style.width = "0%";
   ffmpegLabel.textContent = "准备中...";
 }
@@ -184,6 +193,24 @@ let isDragging = false;
 let dragOffsetNormX = 0; // 按下点相对 pip 左上角的偏移（归一化）
 let dragOffsetNormY = 0;
 
+/** 显示/隐藏 Canvas 空状态占位 */
+function setCanvasPlaceholder(visible) {
+  if (!canvasPlaceholder) return;
+  if (visible) {
+    canvasPlaceholder.classList.remove("hidden");
+  } else {
+    canvasPlaceholder.classList.add("hidden");
+  }
+}
+
+/** 更新 message 状态色（recording / success / warning / error / 默认） */
+function setMessageState(state) {
+  message.className = "message";
+  if (state) {
+    message.classList.add(`state-${state}`);
+  }
+}
+
 /** 返回当前 pip 在画布中的像素矩形 */
 function getPipRect() {
   const cw = mixCanvas.width;
@@ -289,17 +316,14 @@ function setStatus(next, error = null) {
 
   statusDot.className = `dot ${next === "recording" ? "recording" : next === "paused" ? "paused" : "idle"}`;
 
-  if (next === "idle") {
-    statusText.textContent = "空闲";
-  } else if (next === "preparing") {
-    statusText.textContent = "准备中";
-  } else if (next === "recording") {
-    statusText.textContent = "录制中";
-  } else if (next === "paused") {
-    statusText.textContent = "已暂停";
-  } else {
-    statusText.textContent = "异常";
-  }
+  const statusMap = {
+    idle: "空闲",
+    preparing: "准备中",
+    recording: "录制中",
+    paused: "已暂停",
+    error: "异常"
+  };
+  statusText.textContent = statusMap[next] || "异常";
 
   const patch = {
     status: next,
@@ -461,6 +485,8 @@ function resetRuntimeState() {
   updateTimer();
   setStatus("idle");
   message.textContent = "等待开始录制。";
+  setMessageState("");
+  setCanvasPlaceholder(true);
 }
 
 function downloadBlob(blob, filename) {
@@ -498,26 +524,33 @@ async function saveRecording() {
 
   if (format === "webm") {
     message.textContent = "录制完成，正在触发下载...";
+    setMessageState("warning");
     try {
       await downloadBlob(webmBlob, `snapcast-${timestamp}.webm`);
-      message.textContent = "WebM 文件已下载。";
+      message.textContent = "✅ WebM 文件已下载。";
+      setMessageState("success");
     } catch (err) {
       message.textContent = `下载失败：${err.message}`;
+      setMessageState("error");
     }
     hideFfmpegStatus();
-    resetRuntimeState();
-    return;
+  setMessageState("success");
+  resetRuntimeState();
+  return;
   }
 
   // MP4 路径：先下载 WebM 兜底，再转码
   message.textContent = "正在加载 ffmpeg，请稍候...";
+  setMessageState("warning");
   try {
     const mp4Blob = await convertToMp4(webmBlob);
     message.textContent = "转码完成，正在触发下载...";
     await downloadBlob(mp4Blob, `snapcast-${timestamp}.mp4`);
-    message.textContent = "MP4 文件已下载。";
+    message.textContent = "✅ MP4 文件已下载。";
+    setMessageState("success");
   } catch (err) {
-    message.textContent = `MP4 转码失败（${err.message}），已改为下载原始 WebM。`;
+    message.textContent = `⚠️ MP4 转码失败（${err.message}），已改为下载原始 WebM。`;
+    setMessageState("error");
     try {
       await downloadBlob(webmBlob, `snapcast-${timestamp}.webm`);
     } catch (_) {}
@@ -527,16 +560,50 @@ async function saveRecording() {
   }
 }
 
+/**
+ * 向 background 发送消息，返回 Promise。
+ * 失败时静默忽略，不影响录制主流程。
+ */
+function sendBgMessage(type) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type }, () => {
+      void chrome.runtime.lastError;
+      resolve();
+    });
+  });
+}
+
 async function prepareStreams() {
   message.textContent = "正在请求屏幕权限...";
+  setMessageState("");
   setStatus("preparing");
 
-  const requestedScreen = await navigator.mediaDevices.getDisplayMedia({
-    video: {
-      frameRate: { ideal: 30, max: 30 }
-    },
-    audio: true
-  });
+  // ── 关键：先最小化 recorder 窗口，让用户真正想录的内容浮到前台 ──────────
+  // 这样在选择「整个屏幕」或「应用窗口」时，recorder 不会出现在候选列表
+  // 或被误选为录制目标。
+  await sendBgMessage("MINIMIZE_RECORDER");
+
+  // 短暂等待，确保窗口最小化动画完成后再弹出系统选择器
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  let requestedScreen;
+  try {
+    requestedScreen = await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        frameRate: { ideal: 30, max: 30 }
+      },
+      audio: true
+    });
+  } finally {
+    // ── 无论用户选了什么（包括取消），都把 recorder 窗口恢复并置顶 ─────────
+    await sendBgMessage("RESTORE_RECORDER");
+  }
+
+  // 用户取消选择会让 getDisplayMedia 抛出 NotAllowedError，
+  // finally 已恢复窗口，这里直接往上抛由 startRecording 的 catch 处理
+  if (!requestedScreen) {
+    throw new Error("屏幕共享已取消");
+  }
 
   screenStream = requestedScreen;
   screenVideo.srcObject = screenStream;
@@ -675,6 +742,7 @@ async function startRecording() {
     chunks = [];
     await prepareStreams();
 
+    setCanvasPlaceholder(false);
     drawFrame();
     startRecorder();
 
@@ -687,12 +755,29 @@ async function startRecording() {
 
     setStatus("recording");
     message.textContent = "正在录制，点击停止后自动下载。";
+    setMessageState("recording");
   } catch (error) {
     const text = error && error.message ? error.message : "启动录制失败";
-    message.textContent = text;
-    setStatus("error", text);
+    // 用户主动取消屏幕选择（NotAllowedError / 屏幕共享已取消）不算异常，
+    // 静默回到 idle 状态即可
+    const isCancelled =
+      text.includes("屏幕共享已取消") ||
+      text.includes("Permission denied") ||
+      text.includes("NotAllowedError") ||
+      (error && error.name === "NotAllowedError");
+
+    if (isCancelled) {
+      message.textContent = "已取消，点击「开始录制」重新选择。";
+      setMessageState("");
+      setStatus("idle");
+    } else {
+      message.textContent = `⚠️ ${text}`;
+      setMessageState("error");
+      setStatus("error", text);
+    }
     releaseMedia();
     stopDrawLoop();
+    setCanvasPlaceholder(true);
   }
 }
 
@@ -705,7 +790,8 @@ function pauseRecording() {
     recorder.pause();
     pausedAt = Date.now();
     setStatus("paused");
-    message.textContent = "录制已暂停。";
+    message.textContent = "⏸ 录制已暂停。";
+    setMessageState("warning");
     return;
   }
 
@@ -714,7 +800,8 @@ function pauseRecording() {
     pausedDuration += Date.now() - pausedAt;
     pausedAt = null;
     setStatus("recording");
-    message.textContent = "已恢复录制。";
+    message.textContent = "▶ 已恢复录制。";
+    setMessageState("recording");
   }
 }
 
@@ -736,6 +823,7 @@ function stopRecording() {
 
   setStatus("idle");
   message.textContent = "正在整理视频并下载...";
+  setMessageState("warning");
 
   if (recorder.state !== "inactive") {
     recorder.stop();
@@ -811,3 +899,4 @@ chrome.runtime.sendMessage({ type: "RECORDER_READY" }, () => {
 initPipDrag();
 setStatus("idle");
 updateTimer();
+setCanvasPlaceholder(true);
