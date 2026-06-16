@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SnapCast Recorder</title>
+    <link rel="stylesheet" href="recorder.css" />
+  </head>
+  <body>
+    <main class="recorder-layout">
+      <section class="preview-wrap">
+        <div class="canvas-wrap">
+          <canvas id="mixCanvas" width="1280" height="720"></canvas>
+          <!-- 透明覆盖层：专门处理摄像头画中画的拖动交互 -->
+          <div id="pipDragOverlay" class="pip-drag-overlay"></div>
+        </div>
+        <div class="status-overlay">
+          <span id="statusDot" class="dot idle"></span>
+          <span id="statusText">空闲</span>
+          <span id="timer">00:00</span>
+        </div>
+      </section>
+
+      <section class="controls">
+        <div class="head">
+          <h1>SnapCast Recorder</h1>
+          <p>保持此窗口开启，录制时支持暂停/继续。</p>
+        </div>
+
+        <div class="field">
+          <label for="micToggle">
+            <input id="micToggle" type="checkbox" checked />
+            启用麦克风
+          </label>
+        </div>
+
+        <div class="field">
+          <label for="cameraToggle">
+            <input id="cameraToggle" type="checkbox" checked />
+            启用摄像头画中画
+          </label>
+        </div>
+
+        <div class="field format-field">
+          <p class="field-label">输出格式</p>
+          <div class="format-options">
+            <label class="format-option">
+              <input type="radio" name="outputFormat" value="webm" checked />
+              <span class="format-tag">WebM</span>
+              <span class="format-desc">立即下载，体积小</span>
+            </label>
+            <label class="format-option">
+              <input type="radio" name="outputFormat" value="mp4" />
+              <span class="format-tag mp4">MP4</span>
+              <span class="format-desc">兼容性更好，首次需下载 ~32MB ffmpeg 依赖</span>
+            </label>
+          </div>
+          <!-- ffmpeg 加载 / 转码进度区 -->
+          <div id="ffmpegStatus" class="ffmpeg-status hidden">
+            <div class="ffmpeg-bar-wrap">
+              <div id="ffmpegBar" class="ffmpeg-bar"></div>
+            </div>
+            <span id="ffmpegLabel" class="ffmpeg-label">准备中...</span>
+          </div>
+        </div>
+
+        <div class="buttons">
+          <button id="startBtn" class="btn primary">开始录制</button>
+          <button id="pauseBtn" class="btn">暂停</button>
+          <button id="stopBtn" class="btn danger">停止并下载</button>
+        </div>
+
+        <p id="message" class="message">等待开始录制。</p>
+      </section>
+    </main>
+
+    <video id="screenPreview" autoplay muted playsinline class="hidden"></video>
+    <video id="cameraPreview" autoplay muted playsinline class="hidden"></video>
+
+    <script src="recorder.js"></script>
+  </body>
+</html>

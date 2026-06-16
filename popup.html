@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SnapCast</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="header">
+        <h1>SnapCast</h1>
+        <p>本地录屏 + 摄像头画中画</p>
+      </header>
+
+      <section class="panel">
+        <div class="row">
+          <span class="label">状态</span>
+          <span id="statusBadge" class="badge idle">空闲</span>
+        </div>
+        <div class="row">
+          <span class="label">时长</span>
+          <span id="elapsed">00:00</span>
+        </div>
+        <p id="hint" class="hint">点击开始录制后会打开独立录制窗口。</p>
+      </section>
+
+      <section class="actions">
+        <button id="startBtn" class="btn primary">开始录制</button>
+        <button id="pauseBtn" class="btn">暂停</button>
+        <button id="stopBtn" class="btn danger">停止录制</button>
+      </section>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

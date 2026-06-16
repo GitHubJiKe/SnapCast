@@ -1,0 +1,256 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+  background: #0d1117;
+  color: #ecf2fa;
+}
+
+.recorder-layout {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+}
+
+.preview-wrap {
+  position: relative;
+  background: #07090d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+
+.canvas-wrap {
+  position: relative;
+  width: 100%;
+  line-height: 0; /* 消除 inline 元素底部间隙 */
+}
+
+#mixCanvas {
+  width: 100%;
+  max-height: calc(100vh - 40px);
+  border-radius: 12px;
+  background: #0a0e15;
+  border: 1px solid #1f2937;
+  display: block;
+}
+
+/* 透明拖动层，覆盖在 canvas 上方，不阻断视觉效果 */
+.pip-drag-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  cursor: default; /* 默认无特殊光标，命中 pip 区域时动态改为 grab */
+  touch-action: none; /* 防止移动端滚动干扰 */
+}
+
+.status-overlay {
+  position: absolute;
+  top: 28px;
+  left: 28px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: rgba(9, 14, 22, 0.86);
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 137, 160, 0.35);
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #6b7280;
+}
+
+.dot.recording {
+  background: #ff4d6d;
+  box-shadow: 0 0 8px rgba(255, 77, 109, 0.8);
+}
+
+.dot.paused {
+  background: #ffd166;
+}
+
+.controls {
+  border-left: 1px solid #1a2432;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.head h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.head p {
+  margin: 8px 0 0;
+  color: #9aa6b7;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.field {
+  background: #141c28;
+  border: 1px solid #243247;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.field label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.buttons {
+  margin-top: 6px;
+  display: grid;
+  gap: 10px;
+}
+
+.btn {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  background: #2a3446;
+  color: #f1f6ff;
+  cursor: pointer;
+}
+
+.btn.primary {
+  background: #2b66ff;
+}
+
+.btn.danger {
+  background: #d94757;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.message {
+  margin: 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: #111a26;
+  border: 1px solid #233247;
+  color: #b4bfd0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* 格式选择 */
+.format-field {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.field-label {
+  margin: 0 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #8e9cb0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.format-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.format-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.format-option input[type="radio"] {
+  accent-color: #2b66ff;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.format-tag {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #2a3a50;
+  color: #b4d0f0;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.format-tag.mp4 {
+  background: #2d3a20;
+  color: #a8e08a;
+}
+
+.format-desc {
+  color: #6e7f96;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* ffmpeg 加载/转码进度 */
+.ffmpeg-status {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ffmpeg-bar-wrap {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: #1e2d40;
+  overflow: hidden;
+}
+
+.ffmpeg-bar {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2b66ff, #5b9fff);
+  transition: width 0.25s ease;
+}
+
+.ffmpeg-label {
+  font-size: 12px;
+  color: #7a9abe;
+}
+
+.hidden {
+  display: none;
+}
+
+@media (max-width: 980px) {
+  .recorder-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .controls {
+    border-left: 0;
+    border-top: 1px solid #1a2432;
+  }
+}
