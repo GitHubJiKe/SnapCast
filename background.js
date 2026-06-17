@@ -137,6 +137,8 @@ chrome.commands.onCommand.addListener(async (command) => {
     sendToContent(tabId, { type: "SC_PAUSE" }).catch((e) => console.warn("SnapCast: 快捷键暂停失败", e));
   } else if (command === "stop-recording") {
     sendToContent(tabId, { type: "SC_STOP" }).catch((e) => console.warn("SnapCast: 快捷键停止失败", e));
+  } else if (command === "toggle-annotation") {
+    sendToContent(tabId, { type: "SC_TOGGLE_ANNOT" }).catch((e) => console.warn("SnapCast: 快捷键标注切换失败", e));
   }
 });
 
