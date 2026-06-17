@@ -10,9 +10,9 @@
 |---|------|--------|-----------|---------|------|
 
 | F1 | 屏幕标注工具 | 🔴 P0 | L（大） | 无 | ✅ 已完成 |
-| F2 | MP4 转码性能优化 | 🔴 P0 | M（中） | 无 | 待实现 |
+| F2 | ~~MP4 转码性能优化~~ | — | — | — | ❌ 已移除 |
 | F3 | 区域录制 | 🟡 P1 | M（中） | 无 | 待实现 |
-| F4 | GIF 导出 | 🟡 P1 | M（中） | F2 已完成更佳 | 待实现 |
+| F4 | GIF 导出 | 🟡 P1 | M（中） | 无 | 待实现 |
 | F5 | 自定义摄像头样式 | 🟢 P2 | M（中） | 无 | 待实现 |
 | F6 | 多摄像头切换 | 🟢 P2 | S（小） | 无 | 待实现 |
 | F7 | 录制模板 | 🟢 P2 | S（小） | F3 已完成更佳 | 待实现 |
@@ -102,70 +102,9 @@ let currentStroke = null; // 当前正在绘制的笔迹
 
 ---
 
-## F2 — MP4 转码性能优化
+## F2 — ~~MP4 转码性能优化~~ ❌ 已移除
 
-**优先级**：🔴 P0（当前 32MB WASM 首次加载严重影响体验）
-
-### 需求描述
-
-优化 MP4 转码流程，消除首次加载等待感，并降低转码过程的内存占用峰值。
-
-### 现状问题
-
-当前在 `recorder.js` 的 `loadFfmpeg()` 中，用户点击停止后才开始加载 `ffmpeg-core.wasm`（32MB），用户需要等待数秒才能看到下载弹窗，体验很差。
-
-### 技术方案
-
-**优化方向一：预加载（最优先，改动最小）**
-
-在录制**开始之后**（而非停止之后）立即在后台静默加载 ffmpeg，利用录制时间窗口完成 WASM 加载：
-
-```javascript
-// 在 startRecording() 成功后，立即触发后台预热
-// 不阻塞主流程，不影响录制
-async function startRecording() {
-  // ... 现有逻辑 ...
-  setStatus("recording");
-  
-  // 新增：如果用户选择了 MP4 格式，录制期间悄悄预加载 ffmpeg
-  if (getOutputFormat() === 'mp4') {
-    loadFfmpeg().catch(() => {}); // 静默预加载，失败不影响录制
-  }
-}
-```
-
-这样当用户录制 30 秒停止时，ffmpeg 早已加载完毕，转码几乎立即开始。
-
-**优化方向二：SharedArrayBuffer + 多线程转码**
-
-> 前提：需要服务端设置 `Cross-Origin-Opener-Policy: same-origin` 和 `Cross-Origin-Embedder-Policy: require-corp` 响应头。**Chrome 扩展的 extension pages 天然满足此条件**，可以直接使用。
-
-ffmpeg.wasm 支持多线程模式，在 Chrome 扩展环境中可以启用：
-
-```javascript
-await ffmpeg.load({
-  coreURL: `${VENDOR_BASE}/ffmpeg-core.js`,
-  wasmURL: `${VENDOR_BASE}/ffmpeg-core.wasm`,
-  workerURL: `${VENDOR_BASE}/ffmpeg-core.worker.js`, // 需要额外的 worker 文件
-});
-```
-
-多线程模式下，转码速度可提升 2-4 倍。
-
-**优化方向三：降低转码参数，优先速度**
-
-当前 ffmpeg 命令已经使用了 `-preset ultrafast`（最快预设），这个已经是最优。可以额外考虑：
-
-```
--threads 0        → 自动使用所有可用线程
--tune zerolatency → 降低编码延迟
-```
-
-**优化方向四：格式选择的 UX 优化**
-
-在 popup UI 中，当用户选择 MP4 时，增加提示文案：「转码在录制期间后台进行，停止后即可下载」，消除用户等待焦虑。
-
-**实施建议**：优先实施方向一（预加载），改动极小，收益最大，1小时内可完成。
+> **移除原因**：Chrome 扩展消息传递存在 **64MB 硬限制**，录制产生的 WebM 文件经 base64 编码后极易超出此限制。ffmpeg.wasm 在浏览器端运行具有根本性局限（单线程转码慢、消息体积限制），无法提供可接受的体验。项目仅支持 **WebM 格式**输出，停止录制后立即下载，零等待。
 
 ---
 
@@ -511,22 +450,17 @@ if (recConfig.resolution === '720p') {
 ## 实施顺序建议
 
 ```
-第一阶段（核心体验）
-  F2 转码优化  →  只需加「预加载」逻辑，改动 < 20 行，立竿见影
+第一阶段（核心差异化）✅ 已完成
+  F1 屏幕标注  →  Canvas 合成层 + 标注工具 UI + 交互（画笔、箭头、荧光笔）
 
-第二阶段（核心差异化）
-  F1 屏幕标注  →  工作量最大，但是产品灵魂功能，建议拆分为两个子迭代：
-    F1-a：引入 Canvas 合成层（录制路径改造，这是基础）
-    F1-b：标注工具 UI + 交互（画笔、箭头、荧光笔）
-
-第三阶段（功能完善）
-  F3 区域录制  →  依赖 F1-a 的 Canvas 合成层，先做 F1-a 后做 F3 成本更低
+第二阶段（功能完善）
+  F3 区域录制  →  依赖 F1 的 Canvas 合成层，已具备实施基础
   F6 多摄像头  →  改动小，可随时插入
 
-第四阶段（格式扩展）
+第三阶段（格式扩展）
   F4 GIF 导出  →  需要引入 gif.js 依赖，单独一个迭代
 
-第五阶段（精致化）
+第四阶段（精致化）
   F5 摄像头样式
   F7 录制模板
 ```
@@ -538,6 +472,7 @@ if (recConfig.resolution === '720p') {
 - **无服务端**：所有功能必须纯前端实现，转码/编码均在浏览器内完成
 - **无 AI**：不引入任何 AI/ML 能力
 - **无剪辑**：不实现录后时间线剪辑，录完即是成品
-- **MV3 兼容**：所有新增脚本必须符合 Manifest V3 的 CSP 规则（`script-src 'self' 'wasm-unsafe-eval'`），不允许 `eval()`
+- **MV3 兼容**：所有新增脚本必须符合 Manifest V3 的 CSP 规则（`script-src 'self'`），不允许 `eval()`，不允许 WASM unsafe eval
 - **隔离性**：content script 注入的所有 DOM 元素必须使用 `#snapcast-` 前缀，不污染宿主页面
 - **vendor 目录**：新增的第三方库（gif.js 等）统一放入 `vendor/`，并在 `manifest.json` 的 `web_accessible_resources` 中注册
+- **输出格式**：仅支持 WebM，不引入任何音视频转码依赖（已移除 ffmpeg.wasm）

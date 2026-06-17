@@ -232,11 +232,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: false, error: err.message });
       } else {
         sendResponse({ ok: true, downloadId });
-        // 下载触发后重置状态
-        mergeState({ ...DEFAULT_STATE });
-        saveTargetTabId(null);
-        chrome.storage.local.remove("snapCastTargetTabId");
       }
+      // 下载触发后重置状态
+      mergeState({ ...DEFAULT_STATE });
+      saveTargetTabId(null);
+      chrome.storage.local.remove("snapCastTargetTabId");
     });
 
     return true;

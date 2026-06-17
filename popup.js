@@ -23,11 +23,9 @@ function formatMs(ms) {
 }
 
 function getConfig() {
-  const fmt = document.querySelector('input[name="outputFormat"]:checked');
   return {
     mic:    micToggle.checked,
-    camera: cameraToggle.checked,
-    format: fmt ? fmt.value : "webm"
+    camera: cameraToggle.checked
   };
 }
 

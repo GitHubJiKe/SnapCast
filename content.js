@@ -57,9 +57,9 @@ function initSnapCast() {
   // 录制配置（由 popup 通过消息传入）
   let recConfig = {
     mic: true,
-    camera: true,
-    format: "webm"
+    camera: true
   };
+
 
   // ── 悬浮工具栏 DOM ────────────────────────────────────────────────────────
   const toolbar = document.createElement("div");
@@ -891,8 +891,7 @@ function initSnapCast() {
       await chrome.runtime.sendMessage({
         type: "DOWNLOAD_RECORDING",
         dataUrl,
-        filename,
-        format: recConfig.format
+        filename
       });
     } catch (_err) {
       try {
@@ -980,6 +979,7 @@ function initSnapCast() {
       sendResponse({ ok: true, status });
       return;
     }
+
   });
 
   // ── 注入完成，通知 background ─────────────────────────────────────────────

@@ -7,7 +7,6 @@
     "storage",
     "downloads",
     "background",
-    "offscreen",
     "tabs",
     "windows",
     "activeTab",
@@ -46,20 +45,14 @@
       "description": "开启 / 关闭屏幕标注工具"
     }
   },
-  "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
-  },
   "web_accessible_resources": [
     {
       "resources": [
-        "recorder.html",
-        "recorder.css",
-        "recorder.js",
         "content.css",
-        "video-camera.png",
-        "vendor/*"
+        "video-camera.png"
       ],
       "matches": ["<all_urls>"]
     }
   ]
 }
+
