@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SnapCast — 本地录屏扩展，隐私优先，完全免费</title>
+  <meta name="description" content="SnapCast 是一款免费、开源、完全本地化的 Chrome 录屏扩展。无需账号，数据不上云，支持摄像头画中画、屏幕标注、区域录制。" />
+  <style>
+    :root {
+      --bg:       #070b13;
+      --bg-card:  #0c1120;
+      --border:   rgba(96,165,250,0.12);
+      --glow:     rgba(96,165,250,0.3);
+      --blue:     #60a5fa;
+      --cyan:     #22d3ee;
+      --purple:   #a78bfa;
+      --green:    #4ade80;
+      --amber:    #fbbf24;
+      --red:      #f87171;
+      --t1:       #e2e8f0;
+      --t2:       #94a3b8;
+      --t3:       #475569;
+      --mono:     'SF Mono','Fira Code',monospace;
+      --sans:     -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-serif;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    body{
+      background:var(--bg);
+      color:var(--t1);
+      font-family:var(--sans);
+      line-height:1.6;
+      overflow-x:hidden;
+    }
+    body::before{
+      content:'';
+      position:fixed;inset:0;
+      background-image:
+        linear-gradient(rgba(96,165,250,.025) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(96,165,250,.025) 1px,transparent 1px);
+      background-size:48px 48px;
+      pointer-events:none;z-index:0;
+    }
+    ::selection{background:rgba(96,165,250,.25);color:#fff}
+
+    /* ---- NAV ---- */
+    nav{
+      position:fixed;top:0;left:0;right:0;z-index:200;
+      height:60px;padding:0 6%;
+      display:flex;align-items:center;justify-content:space-between;
+      backdrop-filter:blur(20px);
+      background:rgba(7,11,19,.75);
+      border-bottom:1px solid var(--border);
+    }
+    .logo{display:flex;align-items:center;gap:9px;text-decoration:none;font-size:1.05rem;font-weight:700;color:var(--t1)}
+    .logo-mark{
+      width:30px;height:30px;border-radius:7px;
+      background:linear-gradient(135deg,var(--blue),var(--purple));
+      display:flex;align-items:center;justify-content:center;font-size:15px;
+      box-shadow:0 0 14px rgba(96,165,250,.45);
+    }
+    .nav-list{display:flex;align-items:center;gap:28px;list-style:none}
+    .nav-list a{color:var(--t2);text-decoration:none;font-size:.88rem;transition:color .2s}
+    .nav-list a:hover{color:var(--blue)}
+    .nav-btn{
+      padding:7px 18px;border-radius:8px;
+      background:linear-gradient(135deg,var(--blue),var(--cyan));
+      color:#07111f!important;font-weight:700!important;font-size:.83rem!important;
+      transition:opacity .2s,transform .2s!important;
+    }
+    .nav-btn:hover{opacity:.88;transform:translateY(-1px)}
+    @media(max-width:700px){.nav-list{display:none}}
+
+    /* ---- HERO ---- */
+    .hero{
+      position:relative;min-height:100vh;
+      display:flex;align-items:center;justify-content:center;text-align:center;
+      padding:100px 6% 80px;overflow:hidden;
+    }
+    .hero-glow{
+      position:absolute;top:15%;left:50%;transform:translateX(-50%);
+      width:900px;height:480px;
+      background:radial-gradient(ellipse,rgba(96,165,250,.07) 0%,transparent 65%);
+      pointer-events:none;
+    }
+    .badge{
+      display:inline-flex;align-items:center;gap:7px;
+      padding:5px 14px;border-radius:100px;
+      border:1px solid rgba(96,165,250,.3);
+      background:rgba(96,165,250,.07);
+      font-size:.72rem;font-weight:700;letter-spacing:.08em;
+      text-transform:uppercase;color:var(--blue);margin-bottom:26px;
+    }
+    .badge-dot{
+      width:6px;height:6px;border-radius:50%;background:var(--cyan);
+      animation:pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
+    h1{font-size:clamp(2.2rem,5.5vw,4rem);font-weight:800;line-height:1.1;letter-spacing:-.03em;margin-bottom:18px}
+    .g{
+      background:linear-gradient(135deg,var(--blue) 0%,var(--cyan) 45%,var(--purple) 100%);
+      -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+    }
+    .sub{font-size:clamp(.95rem,2vw,1.15rem);color:var(--t2);max-width:580px;margin:0 auto 38px}
+    .actions{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;margin-bottom:52px}
+    .btn-p{
+      display:inline-flex;align-items:center;gap:7px;
+      padding:13px 26px;border-radius:12px;
+      background:linear-gradient(135deg,var(--blue),var(--cyan));
+      color:#07111f;font-weight:700;font-size:.92rem;text-decoration:none;
+      box-shadow:0 4px 22px rgba(96,165,250,.35);
+      transition:transform .2s,box-shadow .2s;
+    }
+    .btn-p:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(96,165,250,.5)}
+    .btn-s{
+      display:inline-flex;align-items:center;gap:7px;
+      padding:13px 26px;border-radius:12px;
+      background:transparent;color:var(--t1);
+      font-weight:600;font-size:.92rem;text-decoration:none;
+      border:1px solid var(--glow);
+      transition:background .2s,border-color .2s;
+    }
+    .btn-s:hover{background:rgba(96,165,250,.07);border-color:var(--blue)}
+    .trust{display:flex;align-items:center;justify-content:center;gap:22px;flex-wrap:wrap}
+    .trust-item{display:flex;align-items:center;gap:6px;font-size:.8rem;color:var(--t2)}
+
+    /* ---- COMMON ---- */
+    section{position:relative;z-index:1}
+    .label{
+      display:inline-block;font-family:var(--mono);font-size:.68rem;font-weight:700;
+      letter-spacing:.14em;text-transform:uppercase;color:var(--cyan);margin-bottom:10px;
+    }
+    .sec-title{font-size:clamp(1.5rem,3.5vw,2.2rem);font-weight:700;letter-spacing:-.02em;line-height:1.2;margin-bottom:10px}
+    .sec-desc{font-size:.95rem;color:var(--t2);max-width:520px}
+    .wrap{max-width:1100px;margin:0 auto}
+
+    /* ---- PRIVACY ---- */
+    .privacy{padding:96px 6%;background:linear-gradient(180deg,transparent,rgba(96,165,250,.025) 50%,transparent)}
+    .privacy .wrap{display:grid;grid-template-columns:1fr 1fr;gap:60px;align-items:center}
+    @media(max-width:800px){.privacy .wrap{grid-template-columns:1fr;gap:36px}}
+    .p-card{
+      background:var(--bg-card);border:1px solid var(--border);border-radius:18px;
+      padding:30px;position:relative;overflow:hidden;
+    }
+    .p-card::before{
+      content:'';position:absolute;top:0;left:0;right:0;height:1px;
+      background:linear-gradient(90deg,transparent,var(--blue),transparent);
+    }
+    .flow{display:flex;flex-direction:column;gap:11px}
+    .flow-row{
+      display:flex;align-items:center;gap:10px;
+      padding:11px 14px;border-radius:8px;font-size:.84rem;
+    }
+    .ok{background:rgba(74,222,128,.07);border:1px solid rgba(74,222,128,.2);color:var(--green)}
+    .blocked{background:rgba(248,113,113,.05);border:1px solid rgba(248,113,113,.15);color:#fca5a5;text-decoration:line-through;opacity:.45}
+    .arr{color:var(--t3);font-family:var(--mono)}
+    .check-list{list-style:none;margin-top:26px;display:flex;flex-direction:column;gap:11px}
+    .check-list li{display:flex;align-items:flex-start;gap:9px;font-size:.9rem;color:var(--t2)}
+    .ck{
+      width:18px;height:18px;border-radius:50%;flex-shrink:0;margin-top:2px;
+      background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);
+      display:flex;align-items:center;justify-content:center;
+      font-size:.65rem;color:var(--green);
+    }
+    .ic{font-family:var(--mono);font-size:.78rem;color:var(--cyan);background:rgba(34,211,238,.07);padding:1px 5px;border-radius:3px}
+
+    /* ---- FEATURES ---- */
+    .features{padding:96px 6%}
+    .fh{margin-bottom:48px}
+    .fg{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:18px}
+    .fc{
+      background:var(--bg-card);border:1px solid var(--border);border-radius:14px;
+      padding:26px;transition:border-color .25s,transform .25s,box-shadow .25s;
+    }
+    .fc:hover{border-color:var(--glow);transform:translateY(-3px);box-shadow:0 0 36px rgba(96,165,250,.12)}
+    .fi{
+      width:42px;height:42px;border-radius:10px;
+      display:flex;align-items:center;justify-content:center;font-size:1.3rem;margin-bottom:14px;
+    }
+    .fi.b{background:rgba(96,165,250,.1)}
+    .fi.c{background:rgba(34,211,238,.1)}
+    .fi.p{background:rgba(167,139,250,.1)}
+    .fi.g{background:rgba(74,222,128,.1)}
+    .fi.a{background:rgba(251,191,36,.1)}
+    .fi.r{background:rgba(248,113,113,.1)}
+    .fc h3{font-size:.97rem;font-weight:600;margin-bottom:7px}
+    .fc p{font-size:.85rem;color:var(--t2);line-height:1.65}
+    .ftag{
+      display:inline-block;margin-top:11px;
+      padding:2px 7px;border-radius:4px;
+      font-family:var(--mono);font-size:.7rem;
+      color:var(--cyan);background:rgba(34,211,238,.07);border:1px solid rgba(34,211,238,.18);
+    }
+
+    /* ---- TECH ---- */
+    .tech{padding:96px 6%;background:linear-gradient(180deg,transparent,rgba(167,139,250,.025) 50%,transparent)}
+    .api-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-bottom:44px}
+    .api{
+      background:var(--bg-card);border:1px solid var(--border);border-radius:8px;
+      padding:14px 18px;display:flex;align-items:flex-start;gap:11px;
+      transition:border-color .2s;
+    }
+    .api:hover{border-color:var(--glow)}
+    .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:5px}
+    .dot.b{background:var(--blue);box-shadow:0 0 6px var(--blue)}
+    .dot.c{background:var(--cyan);box-shadow:0 0 6px var(--cyan)}
+    .dot.p{background:var(--purple);box-shadow:0 0 6px var(--purple)}
+    .dot.g{background:var(--green);box-shadow:0 0 6px var(--green)}
+    .api code{display:block;font-family:var(--mono);font-size:.78rem;color:var(--blue);margin-bottom:3px}
+    .api p{font-size:.8rem;color:var(--t3)}
+    .arch{
+      background:var(--bg-card);border:1px solid var(--border);border-radius:16px;
+      padding:32px;font-family:var(--mono);font-size:.78rem;color:var(--t2);
+      line-height:1.9;overflow-x:auto;
+    }
+    .hb{color:var(--blue)}.hc{color:var(--cyan)}.hp{color:var(--purple)}.hg{color:var(--green)}.hm{color:var(--t3)}
+
+    /* ---- FREE BANNER ---- */
+    .free{padding:96px 6%}
+    .banner{
+      position:relative;overflow:hidden;border-radius:20px;
+      background:var(--bg-card);border:1px solid var(--glow);
+      padding:56px 40px;text-align:center;
+    }
+    .banner::before{
+      content:'';position:absolute;inset:0;
+      background:radial-gradient(ellipse at 50% -10%,rgba(96,165,250,.1) 0%,transparent 60%);
+      pointer-events:none;
+    }
+    .banner::after{
+      content:'';position:absolute;top:0;left:0;right:0;height:2px;
+      background:linear-gradient(90deg,transparent,var(--blue),var(--cyan),var(--purple),transparent);
+    }
+    .fh2{font-size:clamp(1.8rem,4.5vw,3rem);font-weight:800;letter-spacing:-.03em;margin-bottom:14px}
+    .gold{background:linear-gradient(135deg,#ffd700,#f59e0b);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .fsub{font-size:1rem;color:var(--t2);max-width:460px;margin:0 auto 36px}
+    .pills{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap}
+    .pill{padding:7px 16px;border-radius:100px;font-size:.82rem;font-weight:600}
+    .pg{background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:var(--green)}
+    .pb{background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.25);color:var(--blue)}
+    .pp{background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.25);color:var(--purple)}
+
+    /* ---- COMPARE ---- */
+    .compare{padding:0 6% 96px}
+    .tbl-wrap{overflow-x:auto;border-radius:14px;border:1px solid var(--border);margin-top:36px}
+    table{width:100%;border-collapse:collapse}
+    th{padding:14px 18px;font-size:.82rem;font-weight:600;background:var(--bg-card);border-bottom:1px solid var(--border);color:var(--t2)}
+    th.sc{background:rgba(96,165,250,.07);color:var(--blue)}
+    td{padding:12px 18px;font-size:.85rem;color:var(--t2);border-bottom:1px solid rgba(96,165,250,.04);text-align:center}
+    td:first-child{text-align:left}
+    tr:last-child td{border-bottom:none}
+    td.sc{background:rgba(96,165,250,.025)}
+    .y{color:var(--green);font-size:1rem}.n{color:var(--red);font-size:1rem}
+    .m{color:var(--amber);font-size:.8rem;font-family:var(--mono)}
+
+    /* ---- INSTALL + SHORTCUTS ---- */
+    .install{padding:96px 6%}
+    .install .wrap{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:start}
+    @media(max-width:800px){.install .wrap{grid-template-columns:1fr;gap:40px}}
+    .steps{margin-top:22px;display:flex;flex-direction:column;gap:16px}
+    .step{display:flex;gap:14px}
+    .sn{
+      width:26px;height:26px;border-radius:50%;flex-shrink:0;
+      background:linear-gradient(135deg,var(--blue),var(--cyan));
+      color:#07111f;font-weight:700;font-size:.75rem;
+      display:flex;align-items:center;justify-content:center;
+    }
+    .sb h4{font-size:.88rem;font-weight:600;margin-bottom:3px}
+    .sb p{font-size:.82rem;color:var(--t2)}
+    .sb code{font-family:var(--mono);font-size:.76rem;color:var(--cyan);background:rgba(34,211,238,.07);padding:1px 5px;border-radius:3px}
+    .ktbl{width:100%;border-collapse:collapse;margin-top:22px}
+    .ktbl th{text-align:left;padding:9px 13px;font-size:.74rem;font-family:var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--t3);border-bottom:1px solid var(--border)}
+    .ktbl td{padding:12px 13px;font-size:.85rem;color:var(--t2);border-bottom:1px solid rgba(96,165,250,.04);vertical-align:middle}
+    .ktbl tr:last-child td{border-bottom:none}
+    kbd{
+      display:inline-flex;align-items:center;gap:2px;
+      padding:3px 7px;border-radius:5px;
+      background:rgba(96,165,250,.07);border:1px solid rgba(96,165,250,.22);
+      font-family:var(--mono);font-size:.73rem;color:var(--blue);white-space:nowrap;
+    }
+    .compat{margin-top:26px;padding:14px 18px;border-radius:8px;background:rgba(96,165,250,.04);border:1px solid var(--border)}
+    .compat .cm{font-size:.74rem;color:var(--t3);font-family:var(--mono);margin-bottom:5px}
+    .compat p{font-size:.85rem;color:var(--t2)}
+
+    /* ---- FOOTER ---- */
+    footer{
+      padding:40px 6%;border-top:1px solid var(--border);
+      display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;
+      color:var(--t3);font-size:.82rem;
+    }
+    footer a{color:var(--t3);text-decoration:none;transition:color .2s}
+    footer a:hover{color:var(--blue)}
+    .fl{display:flex;gap:22px}
+
+    /* ---- SCROLL ANIMATIONS ---- */
+    .reveal{opacity:0;transform:translateY(18px);transition:opacity .55s ease,transform .55s ease}
+    .reveal.visible{opacity:1;transform:translateY(0)}
+
+    /* ---- SCROLLBAR ---- */
+    ::-webkit-scrollbar{width:5px;height:5px}
+    ::-webkit-scrollbar-track{background:var(--bg)}
+    ::-webkit-scrollbar-thumb{background:var(--t3);border-radius:3px}
+
+    /* hero entry */
+    @keyframes fadeUp{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:translateY(0)}}
+    .f0{animation:fadeUp .6s ease both}
+    .f1{animation:fadeUp .6s .12s ease both}
+    .f2{animation:fadeUp .6s .24s ease both}
+    .f3{animation:fadeUp .6s .36s ease both}
+    .f4{animation:fadeUp .6s .48s ease both}
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="logo" href="#">
+    <span class="logo-mark">🎬</span>
+    SnapCast
+  </a>
+  <ul class="nav-list">
+    <li><a href="#privacy">隐私</a></li>
+    <li><a href="#features">功能</a></li>
+    <li><a href="#tech">技术</a></li>
+    <li><a href="#install">安装</a></li>
+    <li><a href="https://github.com" class="nav-btn">GitHub →</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-glow"></div>
+  <div style="position:relative;z-index:1">
+    <div class="badge f0"><span class="badge-dot"></span>Free &amp; Open Source · Local-First · No Cloud</div>
+    <h1 class="f1">本地录屏，<br/><span class="g">隐私不妥协</span></h1>
+    <p class="sub f2">SnapCast — 免费、开源、完全离线的 Chrome 录屏扩展。<br/>画中画摄像头、实时标注、区域截取，数据永不离开你的设备。</p>
+    <div class="actions f3">
+      <a href="#install" class="btn-p">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        免费安装
+      </a>
+      <a href="#features" class="btn-s">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+        查看功能
+      </a>
+    </div>
+    <div class="trust f4">
+      <span class="trust-item"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>完全免费，无订阅</span>
+      <span class="trust-item"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>无需账号</span>
+      <span class="trust-item"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>数据不上云</span>
+      <span class="trust-item"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>MIT 许可</span>
+    </div>
+  </div>
+</section>
+
+<!-- PRIVACY -->
+<section class="privacy" id="privacy">
+  <div class="wrap">
+    <!-- Left: visual -->
+    <div class="reveal">
+      <div class="p-card">
+        <div style="font-family:var(--mono);font-size:.68rem;color:var(--t3);margin-bottom:18px;letter-spacing:.08em">// DATA_FLOW_TRACE</div>
+        <div class="flow">
+          <div class="flow-row ok">
+            <span>🖥</span><span>屏幕捕获</span><span class="arr">→</span><span>Canvas 合成</span><span class="arr">→</span><span>本地文件</span>
+          </div>
+          <div class="flow-row ok">
+            <span>🎙</span><span>AudioContext</span><span class="arr">→</span><span>MediaRecorder</span><span class="arr">→</span><span>本地 WebM</span>
+          </div>
+          <div class="flow-row ok">
+            <span>📷</span><span>摄像头流</span><span class="arr">→</span><span>Canvas PiP</span><span class="arr">→</span><span>合入画面</span>
+          </div>
+          <div style="height:1px;background:var(--border);margin:7px 0"></div>
+          <div class="flow-row blocked">
+            <span>☁️</span><span>云端上传</span><span class="arr">→</span><span>第三方服务器</span><span class="arr">→</span><span>数据存储</span>
+          </div>
+          <div style="text-align:center;font-size:.68rem;font-family:var(--mono);color:#f87171;margin-top:3px">// BLOCKED: zero network calls</div>
+        </div>
+      </div>
+    </div>
+    <!-- Right: text -->
+    <div class="reveal">
+      <span class="label">Privacy First</span>
+      <h2 class="sec-title">你的录像，<br/>永远只在你的设备上</h2>
+      <p class="sec-desc">SnapCast 彻底拒绝云端依赖。所有媒体流处理、Canvas 合成、文件编码均在浏览器沙箱内完成，不发起任何网络请求，不依赖外部 API，断网环境完全可用。</p>
+      <ul class="check-list">
+        <li><span class="ck">✓</span><span>零网络请求 — 全程在本地 <span class="ic">getDisplayMedia</span> + Canvas 管道内完成</span></li>
+        <li><span class="ck">✓</span><span>无账号、无追踪、无分析 SDK，连 Google Analytics 也没有</span></li>
+        <li><span class="ck">✓</span><span>录制完成后文件直接触发下载，不经过任何中间服务</span></li>
+        <li><span class="ck">✓</span><span>断网环境下完全可用，适合敏感业务、内部演示场景</span></li>
+        <li><span class="ck">✓</span><span>MIT 开源，欢迎自行 Fork 和审计每一行代码</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="features" id="features">
+  <div class="wrap">
+    <div class="fh reveal">
+      <span class="label">Core Features</span>
+      <h2 class="sec-title">专业级功能，完全免费</h2>
+    </div>
+    <div class="fg">
+      <div class="fc reveal">
+        <div class="fi b">🖥</div>
+        <h3>多模式屏幕录制</h3>
+        <p>支持整个屏幕、应用窗口或单个浏览器标签页三种模式，灵活适配教程录制、Bug 复现、产品演示。</p>
+        <span class="ftag">getDisplayMedia()</span>
+      </div>
+      <div class="fc reveal">
+        <div class="fi c">📐</div>
+        <h3>区域录制</h3>
+        <p>开始前拖拽绘制矩形选区，只录制指定区域。Retina 屏自动处理 DPR 坐标换算，像素级精准。</p>
+        <span class="ftag">devicePixelRatio</span>
+      </div>
+      <div class="fc reveal">
+        <div class="fi p">📷</div>
+        <h3>摄像头画中画</h3>
+        <p>圆形摄像头泡泡叠加于屏幕角落，支持自由拖动调整位置，直接合入录制画面，无需后期叠加。</p>
+        <span class="ftag">Canvas PiP</span>
+      </div>
+      <div class="fc reveal">
+        <div class="fi g">🔊</div>
+        <h3>多路音频混音</h3>
+        <p>AudioContext 同时捕获系统声音和麦克风，两路实时混合输出，无需后期合并，一次录好。</p>
+        <span class="ftag">AudioContext API</span>
+      </div>
+      <div class="fc reveal">
+        <div class="fi a">✏️</div>
+        <h3>实时屏幕标注</h3>
+        <p>录制中实时绘制画笔、荧光笔、箭头、圆形高亮，标注直接合入画面，支持 Ctrl+Z 撤销。</p>
+        <span class="ftag">PointerEvent API</span>
+      </div>
+      <div class="fc reveal">
+        <div class="fi r">⏯</div>
+        <h3>暂停 / 继续</h3>
+        <p>录制中随时暂停恢复，配合全局快捷键无需切窗口，Service Worker 状态持久化保证稳定。</p>
+        <span class="ftag">MediaRecorder.pause()</span>
+      </div>
+      <div class="fc reveal">
+        <div class="fi b">⏳</div>
+        <h3>3 秒倒计时蒙层</h3>
+        <p>选择屏幕后自动显示全屏 3 秒倒计时，确保录制从第一帧开始内容完整，告别手忙脚乱。</p>
+        <span class="ftag">Overlay Injection</span>
+      </div>
+      <div class="fc reveal">
+        <div class="fi c">🎯</div>
+        <h3>悬浮工具栏</h3>
+        <p>注入目标页面的浮动控制条，录制时自动隐藏不污染画面，鼠标靠近顶部唤出，体验流畅。</p>
+        <span class="ftag">Content Script</span>
+      </div>
+      <div class="fc reveal">
+        <div class="fi p">⌨️</div>
+        <h3>全局快捷键</h3>
+        <p>⇧⌘P 暂停/继续、⇧⌘S 停止下载、⇧⌘A 标注开关，Mac 与 Windows/Linux 全平台支持。</p>
+        <span class="ftag">chrome.commands</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TECH -->
+<section class="tech" id="tech">
+  <div class="wrap">
+    <div class="reveal" style="margin-bottom:48px">
+      <span class="label">Under The Hood</span>
+      <h2 class="sec-title">纯原生 Web API，<br/>零第三方依赖</h2>
+      <p class="sec-desc" style="margin-top:10px">SnapCast 基于 Chrome Manifest V3，全部由原生 JavaScript (ES6+) 驱动，不引入任何 npm 包和运行时库。你看到的每个功能，都是浏览器 API 的直接映射。</p>
+    </div>
+
+    <div class="api-grid">
+      <div class="api reveal"><span class="dot b"></span><div><code>getDisplayMedia()</code><p>屏幕 / 窗口 / 标签页捕获</p></div></div>
+      <div class="api reveal"><span class="dot c"></span><div><code>getUserMedia()</code><p>摄像头 &amp; 麦克风采集</p></div></div>
+      <div class="api reveal"><span class="dot p"></span><div><code>canvas.captureStream()</code><p>Canvas → 视频流转换</p></div></div>
+      <div class="api reveal"><span class="dot g"></span><div><code>MediaRecorder</code><p>WebM 格式视频编码录制</p></div></div>
+      <div class="api reveal"><span class="dot b"></span><div><code>AudioContext</code><p>多路音频节点实时混音</p></div></div>
+      <div class="api reveal"><span class="dot c"></span><div><code>PointerEvent</code><p>标注工具触控 / 鼠标事件</p></div></div>
+      <div class="api reveal"><span class="dot p"></span><div><code>chrome.downloads</code><p>本地文件写入下载</p></div></div>
+      <div class="api reveal"><span class="dot g"></span><div><code>chrome.commands</code><p>全局快捷键注册与监听</p></div></div>
+    </div>
+
+    <div class="arch reveal">
+      <div style="color:var(--t3);margin-bottom:6px">// ARCHITECTURE — Manifest V3</div><br/>
+      <span class="hb">┌──────────────┐</span>      消息通信        <span class="hb">┌──────────────────┐</span><br/>
+      <span class="hb">│  popup.html  │</span> <span class="hm">◄─────────────────►</span> <span class="hb">│  background.js    │</span><br/>
+      <span class="hb">│  配置 / 启停  │</span>   <span class="hm">chrome.runtime</span>    <span class="hb">│  Service Worker   │</span><br/>
+      <span class="hb">└──────────────┘</span>                        <span class="hb">└───────┬──────────┘</span><br/>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="hm">scripting.executeScript</span><br/>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="hc">│</span><br/>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="hc">┌────────────────────────────────▼──────────────────┐</span><br/>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="hc">│                   content.js                       │</span><br/>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="hc">│                注入目标页面，核心录制逻辑             │</span><br/>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="hc">│</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="hc">│</span><br/>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="hc">│</span>&nbsp;<span class="hg">getDisplayMedia</span> + <span class="hg">getUserMedia</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="hc">│</span><br/>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="hc">│</span>&nbsp;<span class="hp">Canvas 合成</span> + <span class="hp">MediaRecorder</span> + <span class="hb">AudioContext</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="hc">│</span><br/>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="hc">│</span>&nbsp;<span class="hg">标注工具</span> + <span class="hg">区域录制</span> + <span class="hg">摄像头 PiP</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="hc">│</span><br/>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="hc">└────────────────────────────────────────────────────┘</span>
+    </div>
+  </div>
+</section>
+
+<!-- FREE BANNER -->
+<section class="free">
+  <div class="wrap">
+    <div class="banner reveal">
+      <h2 class="fh2"><span class="gold">完全免费</span> 永久可用</h2>
+      <p class="fsub">没有订阅计划，没有付费功能，没有视频水印，没有录制时长限制。<br/>SnapCast 的所有功能，现在和将来，都是免费的。</p>
+      <div class="pills">
+        <span class="pill pg">✓ 无订阅费用</span>
+        <span class="pill pg">✓ 无时长限制</span>
+        <span class="pill pg">✓ 无视频水印</span>
+        <span class="pill pb">✓ MIT 开源</span>
+        <span class="pill pp">✓ 无需注册</span>
+        <span class="pill pp">✓ 完全离线</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- COMPARE -->
+<section class="compare">
+  <div class="wrap" style="max-width:900px">
+    <div class="reveal">
+      <span class="label">Why SnapCast</span>
+      <h2 class="sec-title">和同类产品比较</h2>
+    </div>
+    <div class="tbl-wrap reveal">
+      <table>
+        <thead>
+          <tr>
+            <th style="text-align:left">功能 / 特性</th>
+            <th class="sc">SnapCast</th>
+            <th>Loom</th>
+            <th>OBS</th>
+            <th>其他扩展</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>完全免费</td><td class="sc"><span class="y">✓</span></td><td><span class="m">有限</span></td><td><span class="y">✓</span></td><td><span class="m">部分</span></td></tr>
+          <tr><td>数据不上云</td><td class="sc"><span class="y">✓</span></td><td><span class="n">✗</span></td><td><span class="y">✓</span></td><td><span class="m">不确定</span></td></tr>
+          <tr><td>无需账号</td><td class="sc"><span class="y">✓</span></td><td><span class="n">✗</span></td><td><span class="y">✓</span></td><td><span class="m">部分</span></td></tr>
+          <tr><td>摄像头画中画</td><td class="sc"><span class="y">✓</span></td><td><span class="y">✓</span></td><td><span class="y">✓</span></td><td><span class="m">部分</span></td></tr>
+          <tr><td>实时屏幕标注</td><td class="sc"><span class="y">✓</span></td><td><span class="m">有限</span></td><td><span class="n">✗</span></td><td><span class="n">✗</span></td></tr>
+          <tr><td>区域录制</td><td class="sc"><span class="y">✓</span></td><td><span class="n">✗</span></td><td><span class="y">✓</span></td><td><span class="m">部分</span></td></tr>
+          <tr><td>多路音频混音</td><td class="sc"><span class="y">✓</span></td><td><span class="y">✓</span></td><td><span class="y">✓</span></td><td><span class="n">✗</span></td></tr>
+          <tr><td>浏览器插件（轻量）</td><td class="sc"><span class="y">✓</span></td><td><span class="y">✓</span></td><td><span class="m">客户端</span></td><td><span class="y">✓</span></td></tr>
+          <tr><td>完全离线可用</td><td class="sc"><span class="y">✓</span></td><td><span class="n">✗</span></td><td><span class="y">✓</span></td><td><span class="n">✗</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- INSTALL + SHORTCUTS -->
+<section class="install" id="install">
+  <div class="wrap">
+    <!-- Steps -->
+    <div class="reveal">
+      <span class="label">Quick Start</span>
+      <h2 class="sec-title" style="font-size:1.75rem">3 步开始录制</h2>
+      <div class="steps">
+        <div class="step">
+          <span class="sn">1</span>
+          <div class="sb">
+            <h4>下载扩展源码</h4>
+            <p>从 GitHub 克隆仓库或下载 ZIP 解压。无需 <code>npm install</code>，无任何构建步骤，开箱即用。</p>
+          </div>
+        </div>
+        <div class="step">
+          <span class="sn">2</span>
+          <div class="sb">
+            <h4>加载到 Chrome</h4>
+            <p>访问 <code>chrome://extensions/</code>，开启「开发者模式」，点击「加载已解压的扩展程序」并选择目录。</p>
+          </div>
+        </div>
+        <div class="step">
+          <span class="sn">3</span>
+          <div class="sb">
+            <h4>点击图标，开始录制</h4>
+            <p>工具栏点击 SnapCast 图标，配置麦克风 / 摄像头，点击「开始录制」并选择屏幕范围即可。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Shortcuts -->
+    <div class="reveal">
+      <span class="label">Keyboard Shortcuts</span>
+      <h2 class="sec-title" style="font-size:1.75rem">全局快捷键</h2>
+      <table class="ktbl">
+        <thead>
+          <tr><th>操作</th><th>Mac</th><th>Windows / Linux</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>暂停 / 继续</td>
+            <td><kbd>⇧</kbd><kbd>⌘</kbd><kbd>P</kbd></td>
+            <td><kbd>Shift</kbd><kbd>Alt</kbd><kbd>P</kbd></td>
+          </tr>
+          <tr>
+            <td>停止并下载</td>
+            <td><kbd>⇧</kbd><kbd>⌘</kbd><kbd>S</kbd></td>
+            <td><kbd>Shift</kbd><kbd>Alt</kbd><kbd>S</kbd></td>
+          </tr>
+          <tr>
+            <td>标注工具开关</td>
+            <td><kbd>⇧</kbd><kbd>⌘</kbd><kbd>A</kbd></td>
+            <td><kbd>Shift</kbd><kbd>Alt</kbd><kbd>A</kbd></td>
+          </tr>
+          <tr>
+            <td>撤销标注笔划</td>
+            <td><kbd>⌘</kbd><kbd>Z</kbd></td>
+            <td><kbd>Ctrl</kbd><kbd>Z</kbd></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="compat">
+        <div class="cm">// BROWSER_COMPAT</div>
+        <p>支持 Chrome 90+、Edge 90+ 及所有 Chromium 系浏览器。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div><strong style="color:var(--t2)">SnapCast</strong> &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; v0.2.0</div>
+  <div class="fl">
+    <a href="https://github.com">GitHub</a>
+    <a href="#privacy">隐私说明</a>
+    <a href="#install">安装指南</a>
+  </div>
+</footer>
+
+<script>
+  // Scroll reveal
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('visible');
+        io.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.08 });
+
+  document.querySelectorAll('.reveal').forEach((el, i) => {
+    el.style.transitionDelay = (i % 4) * 0.07 + 's';
+    io.observe(el);
+  });
+</script>
+</body>
+</html>

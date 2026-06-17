@@ -18,9 +18,21 @@
   "background": {
     "service_worker": "background.js"
   },
+  "icons": {
+    "16": "video-camera.png",
+    "32": "video-camera.png",
+    "48": "video-camera.png",
+    "128": "video-camera.png"
+  },
   "action": {
     "default_title": "SnapCast",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "video-camera.png",
+      "32": "video-camera.png",
+      "48": "video-camera.png",
+      "128": "video-camera.png"
+    }
   },
   "commands": {
     "toggle-pause": {
