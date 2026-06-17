@@ -253,3 +253,175 @@
   display: block;
   transform: scaleX(-1); /* 镜像，更自然 */
 }
+
+/* ── 标注工具栏（左侧悬浮，独立于录制控制栏）────────────── */
+#snapcast-annot-bar {
+  position: fixed;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2147483647;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+
+  background: rgba(18, 22, 34, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  padding: 10px 8px;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.45),
+    0 1px 4px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  user-select: none;
+
+  animation: sc-annot-bar-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes sc-annot-bar-in {
+  from { opacity: 0; transform: translateY(-50%) translateX(-20px); }
+  to   { opacity: 1; transform: translateY(-50%) translateX(0); }
+}
+
+#snapcast-annot-bar.sc-hidden {
+  display: none !important;
+}
+
+/* 工具栏内按钮组 */
+#snapcast-annot-bar .sc-annot-tool-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#snapcast-annot-bar .sc-annot-colors {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+#snapcast-annot-bar .sc-annot-sizes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 通用按钮基础样式 */
+#snapcast-annot-bar .sc-annot-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: rgba(240, 244, 255, 0.7);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+  outline: none;
+  flex-shrink: 0;
+}
+
+#snapcast-annot-bar .sc-annot-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+#snapcast-annot-bar .sc-annot-btn:active {
+  transform: scale(0.9);
+}
+
+/* 工具/粗细激活态 */
+#snapcast-annot-bar .sc-annot-tool.active,
+#snapcast-annot-bar .sc-annot-size.active {
+  background: rgba(76, 201, 240, 0.22);
+  color: #4cc9f0;
+  box-shadow: 0 0 0 1.5px rgba(76, 201, 240, 0.5);
+}
+
+/* 颜色按钮 */
+#snapcast-annot-bar .sc-annot-color {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  padding: 0;
+  transition: border-color 0.15s ease, transform 0.1s ease;
+}
+
+#snapcast-annot-bar .sc-annot-color:hover {
+  transform: scale(1.15);
+  background: inherit; /* 保持颜色不变 */
+}
+
+#snapcast-annot-bar .sc-annot-color.active {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
+  transform: scale(1.1);
+}
+
+/* 粗细按钮文字 */
+#snapcast-annot-bar .sc-annot-size {
+  font-size: 13px;
+  color: rgba(240, 244, 255, 0.6);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* 撤销/清除按钮 */
+#snapcast-annot-bar .sc-annot-undo,
+#snapcast-annot-bar .sc-annot-clear {
+  font-size: 16px;
+}
+
+#snapcast-annot-bar .sc-annot-clear:hover {
+  background: rgba(217, 71, 87, 0.25);
+  color: #ff8fab;
+}
+
+/* 分隔线 */
+#snapcast-annot-bar .sc-annot-sep {
+  width: 20px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.14);
+  margin: 2px 0;
+  flex-shrink: 0;
+}
+
+/* ── 透明绘图覆盖层 ──────────────────────────────────────── */
+#snapcast-draw-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483645; /* 低于工具栏和标注栏，高于普通页面内容 */
+  /* 默认：不拦截任何事件，页面正常交互不受影响 */
+  pointer-events: none;
+  touch-action: none;
+  cursor: default;
+}
+
+/* 标注模式激活时：拦截鼠标事件并显示绘图光标 */
+#snapcast-draw-overlay.sc-annot-active {
+  pointer-events: all;
+  cursor: crosshair;
+}
+
+/* 关闭标注按钮 */
+#snapcast-annot-bar .sc-annot-close {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(240, 244, 255, 0.5);
+}
+
+#snapcast-annot-bar .sc-annot-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(240, 244, 255, 0.9);
+}
