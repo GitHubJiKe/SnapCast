@@ -451,3 +451,12 @@ body {
   line-height: 1.4;
   flex: 1;
 }
+
+/* 区域录制提示文字 */
+.field-hint {
+  margin: 6px 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-hint);
+  line-height: 1.4;
+  display: none; /* 默认隐藏，由 JS 控制 */
+}

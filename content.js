@@ -54,10 +54,16 @@ function initSnapCast() {
   let screenVideoEl = null;
   let rafId = null;
 
+  // 区域录制相关
+  let cropRegion = null;       // { x, y, w, h } 屏幕流坐标（null = 全屏录制）
+  let fullVideoWidth  = 0;     // 屏幕流实际宽度（用于 F1 标注坐标换算）
+  let fullVideoHeight = 0;     // 屏幕流实际高度
+
   // 录制配置（由 popup 通过消息传入）
   let recConfig = {
     mic: true,
-    camera: true
+    camera: true,
+    enableCrop: false,
   };
 
 
@@ -408,6 +414,9 @@ function initSnapCast() {
     }
     annotationCanvas = null;
     annotationCtx = null;
+    cropRegion = null;
+    fullVideoWidth  = 0;
+    fullVideoHeight = 0;
   }
 
   function stopTimerLoop() {
@@ -535,6 +544,124 @@ function initSnapCast() {
     ctx.restore();
   }
 
+  // ── 区域录制模式下的标注合成（F1+F3 联动） ───────────────────────────────
+  /**
+   * 将视口坐标的笔迹渲染到裁切后的 canvas 坐标系中。
+   *
+   * 坐标变换逻辑：
+   *   视口坐标 (vx, vy)
+   *   → 屏幕流坐标: vx * streamScaleX, vy * streamScaleY
+   *   → 裁切区域内坐标: - offX, - offY
+   *   → canvas 输出坐标（因为 canvas 尺寸 = cropRegion 尺寸，所以无需额外缩放）
+   *
+   * @param {CanvasRenderingContext2D} ctx
+   * @param {Array}  annList       已完成笔迹列表
+   * @param {object|null} live     当前正在绘制的笔迹
+   * @param {number} sx            streamScaleX = fullVideoWidth / window.innerWidth
+   * @param {number} sy            streamScaleY = fullVideoHeight / window.innerHeight
+   * @param {number} offX          cropRegion.x（屏幕流坐标原点偏移）
+   * @param {number} offY          cropRegion.y
+   */
+  function renderAnnotationsCropped(ctx, annList, live, sx, sy, offX, offY) {
+    const now = Date.now();
+
+    for (const ann of annList) {
+      if (ann.type === "click") {
+        const elapsed = now - ann.startTime;
+        if (elapsed > ann.duration) continue;
+        const progress = elapsed / ann.duration;
+        // 将视口坐标换算到裁切后 canvas 坐标
+        const cx = ann.x * sx - offX;
+        const cy = ann.y * sy - offY;
+        // 跳过选区外的波纹
+        if (cx < 0 || cy < 0) continue;
+        const radius  = ann.baseRadius * sx * (1 + progress * 1.8);
+        const opacity = (1 - progress) * 0.7;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = ann.color;
+        ctx.lineWidth   = 3 * sx;
+        ctx.globalAlpha = opacity;
+        ctx.stroke();
+        ctx.restore();
+        continue;
+      }
+
+      if (!ann.points || ann.points.length === 0) continue;
+      drawStrokeCropped(ctx, ann, sx, sy, offX, offY);
+    }
+
+    if (live) {
+      drawStrokeCropped(ctx, live, sx, sy, offX, offY);
+    }
+  }
+
+  /**
+   * 在裁切坐标系中绘制一条笔迹。
+   * 坐标变换：canvas_x = viewport_x * sx - offX
+   */
+  function drawStrokeCropped(ctx, ann, sx, sy, offX, offY) {
+    if (!ann.points || ann.points.length === 0) return;
+
+    // 将坐标变换内联：转换函数 f(p) = { x: p.x * sx - offX, y: p.y * sy - offY }
+    ctx.save();
+    ctx.strokeStyle = ann.color;
+    ctx.lineWidth   = ann.lineWidth * sx;
+    ctx.lineCap     = "round";
+    ctx.lineJoin    = "round";
+    ctx.globalAlpha = ann.opacity !== undefined ? ann.opacity : 1;
+
+    const pts = ann.points;
+
+    if (ann.type === "pen" || ann.type === "marker") {
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x * sx - offX, pts[0].y * sy - offY);
+      for (let i = 1; i < pts.length; i++) {
+        if (i < pts.length - 1) {
+          const mx = (pts[i].x + pts[i + 1].x) / 2 * sx - offX;
+          const my = (pts[i].y + pts[i + 1].y) / 2 * sy - offY;
+          ctx.quadraticCurveTo(pts[i].x * sx - offX, pts[i].y * sy - offY, mx, my);
+        } else {
+          ctx.lineTo(pts[i].x * sx - offX, pts[i].y * sy - offY);
+        }
+      }
+      ctx.stroke();
+
+    } else if (ann.type === "arrow") {
+      if (pts.length < 2) { ctx.restore(); return; }
+      const p0x = pts[0].x * sx - offX, p0y = pts[0].y * sy - offY;
+      const p1x = pts[pts.length - 1].x * sx - offX, p1y = pts[pts.length - 1].y * sy - offY;
+      ctx.beginPath();
+      ctx.moveTo(p0x, p0y);
+      ctx.lineTo(p1x, p1y);
+      ctx.stroke();
+      const angle  = Math.atan2(p1y - p0y, p1x - p0x);
+      const hLen   = Math.max(ann.lineWidth * sx * 3.5, 14);
+      const hAngle = Math.PI / 6;
+      ctx.beginPath();
+      ctx.moveTo(p1x, p1y);
+      ctx.lineTo(p1x - hLen * Math.cos(angle - hAngle), p1y - hLen * Math.sin(angle - hAngle));
+      ctx.moveTo(p1x, p1y);
+      ctx.lineTo(p1x - hLen * Math.cos(angle + hAngle), p1y - hLen * Math.sin(angle + hAngle));
+      ctx.stroke();
+
+    } else if (ann.type === "circle") {
+      if (pts.length < 2) { ctx.restore(); return; }
+      const p0x = pts[0].x * sx - offX, p0y = pts[0].y * sy - offY;
+      const p1x = pts[pts.length - 1].x * sx - offX, p1y = pts[pts.length - 1].y * sy - offY;
+      const rx = Math.abs(p1x - p0x) / 2;
+      const ry = Math.abs(p1y - p0y) / 2;
+      const cxc = (p0x + p1x) / 2;
+      const cyc = (p0y + p1y) / 2;
+      ctx.beginPath();
+      ctx.ellipse(cxc, cyc, Math.max(rx, 1), Math.max(ry, 1), 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
   // ── 重绘 drawOverlay 预览层 ──────────────────────────────────────────────
   // 坐标系：annotations 存的是"视口坐标"（与 drawOverlay 等尺寸），scale = 1
   // 仅在标注激活时渲染内容；关闭时始终清空，避免闪现
@@ -650,8 +777,176 @@ function initSnapCast() {
     }, true); // 捕获阶段
   }
 
+  // ── 区域选择 UI ───────────────────────────────────────────────────────────
+  /**
+   * 显示全屏选区蒙层，让用户拖拽选择录制区域。
+   * @returns {Promise<{x,y,w,h}>} resolve：CSS 视口坐标的选区；reject：用户取消
+   */
+  function showRegionSelector() {
+    return new Promise((resolve, reject) => {
+      // ── 外层容器（接收拖拽事件，不遮挡选区内部） ───────────────────────
+      const container = document.createElement("div");
+      container.id = "snapcast-region-container";
+      document.body.appendChild(container);
+
+      // ── 四分遮罩 div ─────────────────────────────────────────────────────
+      const maskTop    = document.createElement("div");
+      const maskBottom = document.createElement("div");
+      const maskLeft   = document.createElement("div");
+      const maskRight  = document.createElement("div");
+      maskTop.className    = "sc-region-mask sc-region-mask-top";
+      maskBottom.className = "sc-region-mask sc-region-mask-bottom";
+      maskLeft.className   = "sc-region-mask sc-region-mask-left";
+      maskRight.className  = "sc-region-mask sc-region-mask-right";
+      // 初始状态：四个遮罩各自铺满对应方向
+      maskTop.style.cssText    = "top:0;left:0;right:0;height:100%";
+      maskBottom.style.cssText = "bottom:0;left:0;right:0;height:0";
+      maskLeft.style.cssText   = "top:0;left:0;width:0;bottom:0";
+      maskRight.style.cssText  = "top:0;right:0;width:0;bottom:0";
+      container.appendChild(maskTop);
+      container.appendChild(maskBottom);
+      container.appendChild(maskLeft);
+      container.appendChild(maskRight);
+
+      // ── 选区边框 ─────────────────────────────────────────────────────────
+      const selBox = document.createElement("div");
+      selBox.id = "snapcast-region-selbox";
+      container.appendChild(selBox);
+
+      // ── 尺寸提示 ─────────────────────────────────────────────────────────
+      const sizeHint = document.createElement("div");
+      sizeHint.id = "snapcast-region-size-hint";
+      container.appendChild(sizeHint);
+
+      // ── 操作提示（未拖拽时） ─────────────────────────────────────────────
+      const guide = document.createElement("div");
+      guide.id = "snapcast-region-guide";
+      guide.innerHTML = `<span>拖拽选择录制区域</span><small>按 Esc 取消</small>`;
+      container.appendChild(guide);
+
+      // ── 确认工具栏（拖拽结束后显示） ────────────────────────────────────
+      const actionBar = document.createElement("div");
+      actionBar.id = "snapcast-region-actionbar";
+      actionBar.innerHTML = `
+        <button id="sc-region-cancel" class="sc-region-btn sc-region-btn-cancel">取消</button>
+        <span id="sc-region-warn" class="sc-region-warn"></span>
+        <button id="sc-region-confirm" class="sc-region-btn sc-region-btn-confirm">开始录制</button>
+      `;
+      actionBar.style.display = "none";
+      container.appendChild(actionBar);
+
+      // ── 拖拽逻辑 ─────────────────────────────────────────────────────────
+      let dragging = false;
+      let startX = 0, startY = 0;
+      let currentRegion = null; // { x, y, w, h } CSS 视口坐标
+
+      /** 根据当前 currentRegion 更新四分遮罩 + 选区边框 */
+      function updateUI(r) {
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const x2 = r.x + r.w;
+        const y2 = r.y + r.h;
+
+        // 上遮罩：全宽，高度到选区顶部
+        maskTop.style.cssText    = `top:0;left:0;right:0;height:${r.y}px`;
+        // 下遮罩：全宽，从选区底部到视口底部
+        maskBottom.style.cssText = `bottom:0;left:0;right:0;top:${y2}px`;
+        // 左遮罩：选区左侧，高度 = 选区高度
+        maskLeft.style.cssText   = `top:${r.y}px;left:0;width:${r.x}px;height:${r.h}px`;
+        // 右遮罩：选区右侧，高度 = 选区高度
+        maskRight.style.cssText  = `top:${r.y}px;right:0;left:${x2}px;height:${r.h}px`;
+
+        // 选区边框
+        selBox.style.cssText = `
+          display:block;
+          left:${r.x}px;top:${r.y}px;
+          width:${r.w}px;height:${r.h}px
+        `;
+
+        // 尺寸提示（跟随选区右上角）
+        sizeHint.textContent = `${Math.round(r.w)} × ${Math.round(r.h)}`;
+        const hintX = Math.min(r.x + r.w + 6, vw - 90);
+        const hintY = Math.max(r.y - 24, 4);
+        sizeHint.style.cssText = `display:block;left:${hintX}px;top:${hintY}px`;
+
+        // 操作栏跟随选区底部
+        const barY = Math.min(y2 + 10, vh - 52);
+        const barX = Math.max(Math.min(r.x + r.w - 220, vw - 226), 6);
+        actionBar.style.cssText = `display:flex;left:${barX}px;top:${barY}px`;
+
+        // 最小尺寸警告
+        const warnEl = document.getElementById("sc-region-warn");
+        if (r.w < 160 || r.h < 90) {
+          warnEl.textContent = "选区过小";
+          document.getElementById("sc-region-confirm").disabled = true;
+        } else {
+          warnEl.textContent = "";
+          document.getElementById("sc-region-confirm").disabled = false;
+        }
+      }
+
+      container.addEventListener("pointerdown", (e) => {
+        // 点到操作栏内的按钮不触发拖拽
+        if (actionBar.contains(e.target)) return;
+        dragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        currentRegion = { x: startX, y: startY, w: 0, h: 0 };
+        guide.style.display = "none";
+        actionBar.style.display = "none";
+        selBox.style.display = "none";
+        sizeHint.style.display = "none";
+        container.setPointerCapture(e.pointerId);
+        e.preventDefault();
+      });
+
+      container.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        const x = Math.min(e.clientX, startX);
+        const y = Math.min(e.clientY, startY);
+        const w = Math.abs(e.clientX - startX);
+        const h = Math.abs(e.clientY - startY);
+        currentRegion = { x, y, w, h };
+        updateUI(currentRegion);
+      });
+
+      container.addEventListener("pointerup", () => {
+        if (!dragging) return;
+        dragging = false;
+        // 拖拽结束后保持选区显示，等待用户确认
+      });
+
+      // ── 确认/取消 ────────────────────────────────────────────────────────
+      function doCancel() {
+        container.remove();
+        reject(new Error("用户取消区域选择"));
+      }
+
+      function doConfirm() {
+        if (!currentRegion || currentRegion.w < 160 || currentRegion.h < 90) return;
+        container.remove();
+        resolve(currentRegion);
+      }
+
+      document.getElementById("sc-region-cancel").addEventListener("click", doCancel);
+      document.getElementById("sc-region-confirm").addEventListener("click", doConfirm);
+
+      // Esc 键取消
+      function onKeyDown(e) {
+        if (e.key === "Escape") {
+          document.removeEventListener("keydown", onKeyDown);
+          doCancel();
+        }
+      }
+      document.addEventListener("keydown", onKeyDown);
+    });
+  }
+
   // ── 屏幕 + 音频混合流（含 Canvas 合成层） ────────────────────────────────
-  async function buildMixedStream() {
+  /**
+   * @param {object|null} cssRegion  用户选区（CSS 视口坐标），null 表示全屏录制
+   */
+  async function buildMixedStream(cssRegion) {
     screenStream = await navigator.mediaDevices.getDisplayMedia({
       video: { frameRate: { ideal: 30, max: 30 } },
       audio: true
@@ -700,13 +995,38 @@ function initSnapCast() {
     // ── Canvas 合成层 ────────────────────────────────────────────────────
     const screenVideoTrack = screenStream.getVideoTracks()[0];
     const trackSettings    = screenVideoTrack.getSettings();
-    const videoWidth       = trackSettings.width  || window.screen.width;
-    const videoHeight      = trackSettings.height || window.screen.height;
+    fullVideoWidth  = trackSettings.width  || window.screen.width;
+    fullVideoHeight = trackSettings.height || window.screen.height;
 
-    // 离屏 canvas（录制用），尺寸 = 屏幕流实际分辨率
+    // ── 坐标换算：CSS 视口 → 屏幕流坐标 ────────────────────────────────
+    // 注意：不使用 devicePixelRatio，而是用流尺寸与视口尺寸的比值，
+    // 这样在 Retina/Windows 缩放场景下也能正确映射。
+    cropRegion = null;
+    if (cssRegion) {
+      // 如果用户选了"整个屏幕"（displaySurface=monitor），区域录制不可靠，自动降级
+      if (trackSettings.displaySurface === "monitor") {
+        console.warn("SnapCast: 区域录制在全屏捕获模式下不支持，已自动降级为全屏录制");
+        // cropRegion 保持 null，走全屏路径
+      } else {
+        const sx = fullVideoWidth  / window.innerWidth;
+        const sy = fullVideoHeight / window.innerHeight;
+        cropRegion = {
+          x: Math.round(cssRegion.x * sx),
+          y: Math.round(cssRegion.y * sy),
+          w: Math.max(Math.round(cssRegion.w * sx), 1),
+          h: Math.max(Math.round(cssRegion.h * sy), 1),
+        };
+      }
+    }
+
+    // canvas 输出尺寸：区域录制 = 选区尺寸，全屏 = 流尺寸
+    const outWidth  = cropRegion ? cropRegion.w : fullVideoWidth;
+    const outHeight = cropRegion ? cropRegion.h : fullVideoHeight;
+
+    // 离屏 canvas（录制用）
     annotationCanvas        = document.createElement("canvas");
-    annotationCanvas.width  = videoWidth;
-    annotationCanvas.height = videoHeight;
+    annotationCanvas.width  = outWidth;
+    annotationCanvas.height = outHeight;
     annotationCtx           = annotationCanvas.getContext("2d");
 
     // 同步 drawOverlay 到视口尺寸
@@ -723,17 +1043,47 @@ function initSnapCast() {
     await screenVideoEl.play();
 
     // rAF 渲染循环：将屏幕帧 + 标注图层合成到离屏 canvas
-    // 仅在标注激活时叠加标注层；关闭标注时画面干净（但 annotations 数据保留）
     function renderFrame() {
       if (!annotationCanvas || !annotationCtx || !screenVideoEl) return;
-      // 绘制屏幕帧
-      annotationCtx.drawImage(screenVideoEl, 0, 0, videoWidth, videoHeight);
+
+      if (cropRegion) {
+        // 区域裁切：从屏幕流裁取 cropRegion，绘满整个 canvas
+        annotationCtx.drawImage(
+          screenVideoEl,
+          cropRegion.x, cropRegion.y, cropRegion.w, cropRegion.h,  // source
+          0, 0, outWidth, outHeight                                  // dest
+        );
+      } else {
+        // 全屏录制
+        annotationCtx.drawImage(screenVideoEl, 0, 0, outWidth, outHeight);
+      }
+
       // 仅标注激活时叠加标注层
       if (annotActive) {
-        const sx = videoWidth  / window.innerWidth;
-        const sy = videoHeight / window.innerHeight;
-        renderAnnotations(annotationCtx, annotations, currentStroke, sx, sy);
+        if (cropRegion) {
+          // 区域录制模式：视口坐标 → 裁切后 canvas 坐标
+          // scaleX/Y = (canvas尺寸 / 全屏流尺寸) * (全屏流尺寸 / 视口尺寸)
+          //          = canvas尺寸 / 视口尺寸
+          // 但坐标原点需要减去选区偏移（屏幕流坐标），再缩放到 canvas 坐标
+          const streamScaleX = fullVideoWidth  / window.innerWidth;
+          const streamScaleY = fullVideoHeight / window.innerHeight;
+          // 将视口坐标的笔迹偏移到选区本地坐标系后，再映射到 canvas 输出坐标
+          // 视口坐标 → 屏幕流坐标：* streamScale
+          // 减去选区原点偏移：- cropRegion.x/y
+          // 屏幕流选区坐标 → canvas 坐标：/ cropRegion.w * outWidth (= 1，因为 outWidth=cropRegion.w)
+          // 因此等效 scaleX = outWidth / cropRegion.w * streamScaleX = streamScaleX（因为outWidth=cropRegion.w）
+          const sx = streamScaleX;
+          const sy = streamScaleY;
+          const offX = cropRegion.x; // 屏幕流坐标偏移
+          const offY = cropRegion.y;
+          renderAnnotationsCropped(annotationCtx, annotations, currentStroke, sx, sy, offX, offY);
+        } else {
+          const sx = outWidth  / window.innerWidth;
+          const sy = outHeight / window.innerHeight;
+          renderAnnotations(annotationCtx, annotations, currentStroke, sx, sy);
+        }
       }
+
       rafId = requestAnimationFrame(renderFrame);
     }
     rafId = requestAnimationFrame(renderFrame);
@@ -791,8 +1141,25 @@ function initSnapCast() {
       chunks = [];
       annotations.length = 0;
       currentStroke = null;
+      cropRegion = null;
 
-      await buildMixedStream();
+      // ① 如果开启了区域录制，先让用户拖拽选区
+      let cssRegion = null;
+      if (recConfig.enableCrop) {
+        try {
+          cssRegion = await showRegionSelector();
+          // ② 关键：等待两帧，确保选区蒙层 DOM 已完全从页面移除，
+          //    否则蒙层会出现在 getDisplayMedia 捕获的内容里
+          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        } catch (_) {
+          // 用户取消选区，终止录制流程
+          setStatus("idle");
+          return;
+        }
+      }
+
+      // ③ 获取屏幕流（此时页面无蒙层），并完成 Canvas 合成层初始化
+      await buildMixedStream(cssRegion);
 
       hideToolbar();
       await showCountdown();

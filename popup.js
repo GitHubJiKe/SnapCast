@@ -10,6 +10,8 @@ const stopBtn  = document.getElementById("stopBtn");
 
 const micToggle    = document.getElementById("micToggle");
 const cameraToggle = document.getElementById("cameraToggle");
+const cropToggle   = document.getElementById("cropToggle");
+const cropHint     = document.getElementById("cropHint");
 
 // ── 状态 ─────────────────────────────────────────────────────────────────────
 let currentState = { status: "idle", startedAt: null, error: null };
@@ -24,10 +26,18 @@ function formatMs(ms) {
 
 function getConfig() {
   return {
-    mic:    micToggle.checked,
-    camera: cameraToggle.checked
+    mic:        micToggle.checked,
+    camera:     cameraToggle.checked,
+    enableCrop: cropToggle.checked,
   };
 }
+
+// 区域录制 Toggle：控制提示文字显示/隐藏
+cropToggle.addEventListener("change", () => {
+  cropHint.style.display = cropToggle.checked ? "block" : "none";
+});
+// 初始化状态
+cropHint.style.display = cropToggle.checked ? "block" : "none";
 
 // ── 界面更新 ──────────────────────────────────────────────────────────────────
 const BADGE_MAP = {

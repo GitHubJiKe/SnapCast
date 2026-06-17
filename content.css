@@ -426,3 +426,170 @@
   color: rgba(240, 244, 255, 0.9);
 }
 
+/* ── 区域录制选区 UI ─────────────────────────────────────── */
+
+/* 外层容器：全屏覆盖，cursor=crosshair，接收拖拽事件 */
+#snapcast-region-container {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483646;
+  cursor: crosshair;
+  user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* 四分遮罩：半透明黑色 */
+#snapcast-region-container .sc-region-mask {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+/* 选区边框 */
+#snapcast-region-selbox {
+  position: absolute;
+  display: none;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.5),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.3);
+  border-radius: 2px;
+  pointer-events: none;
+  /* 四角手柄（伪元素模拟） */
+}
+
+/* 四角调节手柄（纯视觉，用 outline+before/after 实现） */
+#snapcast-region-selbox::before,
+#snapcast-region-selbox::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  border-radius: 1px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.4);
+}
+
+#snapcast-region-selbox::before {
+  top: -4px;
+  left: -4px;
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,0.4),
+    calc(100% + 4px) 0       0 0 #fff, /* 右上角 */
+    0               calc(100% + 4px) 0 0 #fff, /* 左下角 */
+    calc(100% + 4px) calc(100% + 4px) 0 0 #fff; /* 右下角（box-shadow 模拟 4 个角） */
+}
+
+#snapcast-region-selbox::after {
+  display: none; /* 用 ::before 的 box-shadow 模拟全部四角，::after 暂不用 */
+}
+
+/* 尺寸提示气泡 */
+#snapcast-region-size-hint {
+  position: absolute;
+  display: none;
+  padding: 3px 7px;
+  background: rgba(18, 22, 34, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  color: #f0f4ff;
+  font-size: 11px;
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* 中心操作引导文字（未拖拽时） */
+#snapcast-region-guide {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+#snapcast-region-guide span {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+#snapcast-region-guide small {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+}
+
+/* 确认操作栏 */
+#snapcast-region-actionbar {
+  position: absolute;
+  display: none; /* 由 JS 控制显隐 */
+  align-items: center;
+  gap: 8px;
+  background: rgba(18, 22, 34, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 6px 10px;
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.5),
+    0 1px 4px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 1;
+}
+
+.sc-region-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+  outline: none;
+}
+
+.sc-region-btn:active {
+  transform: scale(0.96);
+}
+
+.sc-region-btn-cancel {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(240, 244, 255, 0.75);
+}
+
+.sc-region-btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.sc-region-btn-confirm {
+  background: #2f67ff;
+  color: #fff;
+}
+
+.sc-region-btn-confirm:hover:not(:disabled) {
+  background: #4a7aff;
+}
+
+.sc-region-btn-confirm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 最小尺寸警告 */
+.sc-region-warn {
+  font-size: 11px;
+  color: #ff8fab;
+  white-space: nowrap;
+}
+
