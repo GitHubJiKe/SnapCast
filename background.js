@@ -58,8 +58,11 @@ function loadStateFromStorage() {
 }
 
 // ── Tab 监听：录制 tab 关闭时重置状态 ────────────────────────────────────────
-chrome.tabs.onRemoved.addListener((tabId) => {
-  if (tabId !== targetTabId) return;
+// #3 修复：SW 重启后内存变量 targetTabId 为 null，必须从 storage 异步读取再比较，
+// 否则关闭录制 tab 时永远命中不到，popup 会一直显示"录制中"。
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  const storedId = await getTargetTabId();
+  if (tabId !== storedId) return;
   saveTargetTabId(null);
   chrome.storage.local.remove("snapCastTargetTabId");
   mergeState({ ...DEFAULT_STATE });
@@ -200,11 +203,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // ── popup → 暂停/继续/停止 ────────────────────────────────────────────
   if (message.type === "CONTROL_RECORDING") {
-    if (!targetTabId) {
-      sendResponse({ ok: false, error: "没有正在录制的标签页" });
-      return;
-    }
-
     const cmd = message.command;
     const msgType = cmd === "pause"  ? "SC_PAUSE"
                   : cmd === "resume" ? "SC_PAUSE"  // content 内部自动切换
@@ -213,9 +211,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     if (!msgType) { sendResponse({ ok: false, error: "未知命令" }); return; }
 
-    sendToContent(targetTabId, { type: msgType })
-      .then(() => sendResponse({ ok: true, state: runtimeState }))
-      .catch(err => sendResponse({ ok: false, error: err.message }));
+    // 从 storage 读取以应对 SW 重启后内存变量丢失的场景
+    getTargetTabId().then(tabId => {
+      if (!tabId) {
+        sendResponse({ ok: false, error: "没有正在录制的标签页" });
+        return;
+      }
+      sendToContent(tabId, { type: msgType })
+        .then(() => sendResponse({ ok: true, state: runtimeState }))
+        .catch(err => sendResponse({ ok: false, error: err.message }));
+    });
 
     return true;
   }
